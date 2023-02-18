@@ -1,0 +1,1508 @@
+%# original file: https://git.ruby-lang.org/ruby.git/tree/parse.y
+
+%prefix "tiny_ruby_parser"
+
+%capture on
+%value c  -> "tiny_ruby_value" rb -> "TinyRubyValue"
+%auxil c  -> "tiny_ruby_context_ext *"
+
+dump                <-  program:program
+                          c  -> {
+                            tiny_ruby_parser_dump_node(program.node, rb_str_new2("# "));
+                          }
+                          rb -> {
+                            program.debug_dump("# ")
+                          }
+
+program             <-  $$:top_compstmt
+                        '\n'*
+                        EOF
+top_compstmt        <-  < top_stmts:top_stmts >
+                        term*
+                          c  -> {
+                            VALUE tbl;
+                            if (NIL_P(top_stmts.node->var_table)) {
+                                tbl = rb_ary_new();
+                            } else {
+                                tbl = top_stmts.node->var_table;
+                            }
+                            $$.node = NEW_NODE(NODE_SCOPE, tbl, top_stmts.node, 0, top_stmts.node->nd_loc.beg_pos, top_stmts.node->nd_loc.end_pos);
+                          }
+                          rb -> {
+                            $$ = ScopeNode.new(top_stmts.var_table || [], top_stmts, nil, top_stmts.nd_loc.beg_pos, top_stmts.nd_loc.end_pos)
+                          }
+top_stmts           <-  top_stmts:top_stmts spaces?
+                        term+ spaces?
+                        top_stmt:top_stmt
+                          c  -> {
+                            top_stmt.node->newline = 1;
+                            $$.node = tiny_ruby_parser_block_append(top_stmts.node, top_stmt.node);
+                            tiny_ruby_parser_var_table_pass($$.node, top_stmt.node);
+                          }
+                          rb -> {
+                            top_stmt.newline = true
+                            $$ = TinyRubyParser.block_append(top_stmts, top_stmt)
+                            $$.var_table_pass(top_stmt)
+                          }
+                      / top_stmt:top_stmt
+                          c  -> {
+                            top_stmt.node->newline = 1;
+                            $$ = top_stmt;
+                          }
+                          rb -> {
+                            top_stmt.newline = true;
+                            $$ = top_stmt
+                          }
+                      / spaces?
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_BEGIN, 0, 0, 0, $0sl, $0sl);
+                          }
+                          rb -> {
+                            $$ = BeginNode.new(nil, nil, nil, $0sl, $0sl)
+                          }
+top_stmt            <-  $$:stmt
+
+stmt                <-  $$:expr
+
+compstmt            <-  $$:stmts term*
+
+bodystmt            <-  $$:compstmt
+
+stmts               <-  stmts:stmts spaces?
+                        term+ spaces?
+                        stmt:stmt
+                          c  -> {
+                            stmt.node->newline = 1;
+                            $$.node = tiny_ruby_parser_block_append(stmts.node, stmt.node);
+                            tiny_ruby_parser_var_table_pass($$.node, stmt.node);
+                          }
+                          rb -> {
+                            stmt.newline = true
+                            $$ = TinyRubyParser.block_append(stmts, stmt)
+                            $$.var_table_pass(stmt)
+                          }
+                      / stmt:stmt
+                          c  -> {
+                            stmt.node->newline = 1;
+                            $$.node = stmt.node;
+                          }
+                          rb -> {
+                            stmt.newline = true
+                            $$ = stmt
+                          }
+
+expr                <-  $$:command_call
+                      / $$:arg
+
+command_call        <-  $$:command
+
+command             <-  fcall:fcall
+                        spaces
+                        command_args:command_args
+                          c  -> {
+                            fcall.node->nd_args = command_args.node;
+                            fcall.node->nd_loc.beg_pos = $0c.range.start_loc;
+                            fcall.node->nd_loc.end_pos = $0c.range.end_loc;
+                            $$ = fcall;
+                          }
+                          rb -> {
+                            fcall.nd_args = command_args
+                            fcall.nd_loc.beg_pos = $0c.start_loc
+                            fcall.nd_loc.end_pos = $0c.end_loc
+                            $$ = fcall
+                          }
+
+method_call         <-  fcall:fcall spaces?
+                        paren_args:paren_args
+                          c  -> {
+                            $$.node = fcall.node;
+                            $$.node->nd_args = paren_args.node;
+                            $$.node->nd_loc.end_pos = $0c.range.end_loc;
+                          }
+                          rb -> {
+                            $$ = fcall
+                            $$.nd_args = paren_args
+                            $$.nd_loc.end_pos = $0c.end_loc
+                          }
+                      / primary:primary
+                        call_op:call_op
+                        <operation2:operation2>
+                        (
+                          paren_args:paren_args
+                            c  -> { $$.node = paren_args.node; }
+                            rb -> { $$ = paren_args }
+                        / ''
+                            c  -> { $$.node = NULL; }
+                            rb -> { $$ = nil }
+                        )
+                          c  -> {
+                            $$.node = NEW_NODE(call_op.value, primary.node, operation2.value, $$.node, $0sl, $0el);
+                            $$.node->nd_loc.lineno = $1el.lineno;
+                          }
+                          rb -> {
+                            $$ = call_op.new(primary, operation2, $$, $0sl, $0el)
+                            $$.nd_loc.lineno = $1el.lineno
+                          }
+
+fcall               <-  operation:operation
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_FCALL, NULL, operation.node, NULL, $0sl, $0el);
+                          }
+                          rb -> {
+                            $$ = FCallNode.new(operation, nil, $0sl, $0el)
+                          }
+
+fname               <-  $$:tIDENTIFIER
+                      / $$:tCONSTANT
+                      / $$:op
+
+operation           <-  $$:tIDENTIFIER
+
+operation2          <-  $$:operation
+                      / $$:op
+
+op                  <-  [-+/%*]
+                          c  -> {
+                            $$.value = ID2SYM(rb_intern($0));
+                          }
+                          rb -> {
+                            $$ = $0.to_sym
+                          }
+call_op             <-  '.'
+                          c  -> {
+                            $$.value = NODE_CALL;
+                          }
+                          rb -> {
+                            $$ = CallNode
+                          }
+                      / tANDDOT
+                          c  -> {
+                            $$.value = NODE_QCALL;
+                          }
+                          rb -> {
+                            $$ = QCallNode
+                          }
+
+tANDDOT             <- '&.'
+
+command_args        <-  $$:call_args
+
+paren_args          <-  '('
+                        spaces?
+                        $$:call_args?
+                        spaces?
+                        ')'
+
+call_args           <-  $$:args
+
+args                <-  args:args
+                        spaces?
+                        ','
+                        spaces?
+                        arg_value:arg_value
+                          c  -> {
+                            $$.node =  tiny_ruby_parser_list_append(args.node, arg_value.node);
+                          }
+                          rb -> {
+                            $$ = TinyRubyParser.list_append(args, arg_value)
+                          }
+                      / arg_value:arg_value
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_LIST, arg_value.node, 1, 0, $0sl, $0el);
+                          }
+                          rb -> {
+                            $$ = ListNode.new(arg_value, $0sl, $0el)
+                          }
+
+arg_value           <-  $$:arg
+
+arg_rhs             <-  $$:arg
+
+arg                 <-  $$:arg_addsub
+                      / lhs:tIDENTIFIER spaces?
+                        '=' spaces?
+                        arg:arg_rhs
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_LASGN, lhs.value, arg.node, 0, $0sl, $0el);
+                            tiny_ruby_parser_var_table_add($$.node, lhs.value);
+                          }
+                          rb -> {
+                            $$ = LasgnNode.new(lhs, arg, $0sl, $0el)
+                            $$.var_table_add(lhs)
+                          }
+
+arg_addsub          <-  recv:arg_addsub
+                        spaces?
+                        < [-+] >
+                        spaces?
+                        arg:arg_muldiv
+                          c  -> {
+                              NODE *args = NEW_NODE(NODE_LIST, arg.node, 1, 0, arg.node->nd_loc.beg_pos, arg.node->nd_loc.end_pos);
+                              $$.node = NEW_NODE(NODE_OPCALL, recv.node, ID2SYM(rb_intern($1)), args, $0sl, $0el);
+                          }
+                          rb -> {
+                              args = ListNode.new(arg, arg.nd_loc.beg_pos, arg.nd_loc.end_pos)
+                              $$ = OpCallNode.new(recv, $1.to_sym, args, $0sl, $0el)
+                          }
+                      / $$:arg_muldiv
+arg_muldiv          <-  recv:arg_muldiv
+                        spaces?
+                        < [*/%] >
+                        spaces?
+                        arg:arg_primary
+                          c  -> {
+                              NODE *args = NEW_NODE(NODE_LIST, arg.node, 1, 0, arg.node->nd_loc.beg_pos, arg.node->nd_loc.end_pos);
+                              $$.node = NEW_NODE(NODE_OPCALL, recv.node, ID2SYM(rb_intern($1)), args, $0sl, $0el);
+                          }
+                          rb -> {
+                              args = ListNode.new(arg, arg.nd_loc.beg_pos, arg.nd_loc.end_pos)
+                              $$ = OpCallNode.new(recv, $1.to_sym, args, $0sl, $0el)
+                          }
+                      / $$:arg_primary
+
+arg_primary         <-  $$:primary
+
+primary             <-  defn_head:defn_head
+                        f_arglist:f_arglist spaces?
+                        bodystmt:bodystmt? spaces?
+                        'end'
+                          c  -> {
+                            NODE *body = bodystmt.node;
+                            if (f_arglist.node->nd_head) {
+                                body = tiny_ruby_parser_block_append(f_arglist.node->nd_head, bodystmt.node);
+                                f_arglist.node->nd_head = NULL;
+                                tiny_ruby_parser_var_table_pass(body, bodystmt.node);
+                            }
+                            $$.node = tiny_ruby_parser_set_defun_body(defn_head.node, f_arglist.node, body, $0sl, $0el);
+                            tiny_ruby_parser_var_table_pass($$.node, body);
+                          }
+                          rb -> {
+                            if f_arglist.nd_head
+                              body = TinyRubyParser.block_append(f_arglist.nd_head, bodystmt)
+                              f_arglist.nd_head = nil
+                              body.var_table_pass(bodystmt)
+                            else
+                              body = bodystmt
+                            end
+                            $$ = TinyRubyParser.set_defun_body(defn_head, f_arglist, body, $0sl, $0el);
+                            $$.var_table_pass(body)
+                          }
+                      / 'class' spaces
+                        cpath:cpath <spaces?> <term?> (spaces? term?)*
+                        bodystmt:bodystmt? (spaces? term?)*
+                        'end'
+                          c  -> {
+                            NODE *body = bodystmt.node;
+                            if($2[0] != '\0') {
+                                body = tiny_ruby_parser_block_append(NEW_NODE(NODE_BEGIN, 0, 0, 0, $1sl, $1sl), bodystmt.node);
+                                tiny_ruby_parser_var_table_pass(body, bodystmt.node);
+                            }
+                            $$.node = NEW_NODE(NODE_CLASS, cpath.node, NEW_NODE(NODE_SCOPE, rb_ary_new(), body, 0, $0sl, $0el), NULL, $0sl, $0el);
+                          }
+                          rb -> {
+                            if $2 != ""
+                              body = TinyRubyParser.block_append(BeginNode.new(nil, nil, nil, $1sl, $1sl), bodystmt)
+                              body.var_table_pass(bodystmt)
+                            else
+                              body = bodystmt
+                            end
+                            $$ = ClassNode.new(cpath, ScopeNode.new([], body, nil, $0sl, $0el), nil, $0sl, $0el)
+                          }
+                      / $$:method_call
+                      / $$:literal
+                      / $$:strings
+                      / '(' $$:compstmt ')'
+
+defn_head           <-  'def' spaces def_name:def_name
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_DEFN, 0, def_name.node->nd_mid, def_name.node, $0sl, $0el);
+                          }
+                          rb -> {
+                            $$ = DefnNode.new(def_name.nd_mid, def_name, $0sl, $0el)
+                          }
+def_name            <-  fname:fname
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_SELF, 0, fname.node, 0, $0sl, $0el);
+                          }
+                          rb -> {
+                            $$ = SelfNode.new(nil, fname, nil, $0sl, $0el)
+                          }
+
+f_arglist           <-  spaces? f_paren_args:f_paren_args <spaces?> <term?> (spaces* term)*
+                          c  -> {
+                            $$ = f_paren_args;
+                            if($2[0] != '\0') {
+                              $$.node->nd_head = NEW_NODE(NODE_BEGIN, 0, 0, 0, $1sl, $1sl);
+                            }
+                          }
+                          rb -> {
+                            $$ = f_paren_args
+                            if $2 != ""
+                              $$.nd_head = BeginNode.new(nil, nil, nil, $1sl, $1sl)
+                            end
+                          }
+                      / f_args:f_args spaces? term <spaces?> <term?> (spaces* term)*
+                          c  -> {
+                            $$ = f_args;
+                            if($4[0] != '\0') {
+                              $$.node->nd_head = NEW_NODE(NODE_BEGIN, 0, 0, 0, $3sl, $3sl);
+                            }
+                          }
+                          rb -> {
+                            $$ = f_args
+                            if $4 != ""
+                              $$.nd_head = BeginNode.new(nil, nil, nil, $3sl, $3sl)
+                            end
+                          }
+f_paren_args        <-  '(' spaces? $$:f_args spaces? ')'
+f_args              <-  f_arg:f_arg
+                          c  -> {
+                            struct tiny_ruby_parser_args_info *args = calloc(1, sizeof(struct tiny_ruby_parser_args_info));
+                            args->pre_args_num = RARRAY_LEN(f_arg.node->var_table);
+                            $$.node = NEW_NODE(NODE_ARGS, 0, 0, args, $0sl, $0el);
+                            tiny_ruby_parser_var_table_pass($$.node, f_arg.node);
+                          }
+                          rb -> {
+                            args = ArgsInfo.new
+                            args.pre_args_num = f_arg.var_table.size
+                            $$ = ArgsNode.new(nil, nil, args, $0sl, $0el)
+                            $$.var_table_pass(f_arg)
+                          }
+                      / # none
+                          c  -> {
+                            struct tiny_ruby_parser_args_info *args = calloc(1, sizeof(struct tiny_ruby_parser_args_info));
+                            $$.node = NEW_NODE(NODE_ARGS, 0, 0, args, $0sl, $0el);
+                          }
+                          rb -> {
+                            args = ArgsInfo.new
+                            $$ = ArgsNode.new(nil, nil, args, $0sl, $0el)
+                          }
+f_arg               <-  f_arg:f_arg spaces? ',' spaces? f_arg_item:f_arg_item
+                          c  -> {
+                            $$.node = f_arg.node;
+                            $$.node->nd_plen++;
+                            $$.node->nd_next = tiny_ruby_parser_block_append($$.node->nd_next, f_arg_item.node->nd_next);
+                            tiny_ruby_parser_var_table_pass($$.node, f_arg_item.node);
+                            free(f_arg_item.node);
+                          }
+                          rb -> {
+                            $$ = f_arg
+                            $$.nd_plen += 1
+                            $$.nd_next = TinyRubyParser.block_append($$.nd_next, f_arg_item.nd_next)
+                            $$.var_table_pass(f_arg_item)
+                          }
+                      / $$:f_arg_item
+
+f_arg_item          <-  f_arg_asgn:f_arg_asgn
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_ARGS_AUX, f_arg_asgn.value, 1, 0, NULL_LOC.beg_pos, NULL_LOC.end_pos);
+                            tiny_ruby_parser_var_table_add($$.node, f_arg_asgn.value);
+                          }
+                          rb -> {
+                            $$ = ArgsAuxNode.new(f_arg_asgn, 1, NULL_LOC.beg_pos, NULL_LOC.end_pos)
+                            $$.var_table_add(f_arg_asgn)
+                          }
+
+f_arg_asgn          <-  $$:f_norm_arg
+
+f_norm_arg          <-  $$:tIDENTIFIER
+
+cpath               <-  cname:tCONSTANT
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_COLON2, 0, cname.value, 0, $0sl, $0el);
+                          }
+                          rb -> {
+                            $$ = Colon2Node.new(nil, cname, $0sl, $0el)
+                          }
+
+literal             <-  $$:numeric
+
+strings             <-  $$:string
+
+string              <-  $$:string1
+
+string1             <-  '\'' string_content:sq_str_content '\''
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_STR, string_content.value, 0, 0, $0sl, $0el);
+                          }
+                          rb -> {
+                            $$ = StrNode.new(string_content, $0sl, $0el)
+                          }
+                      / '"' string_content:dq_str_content <'#'?> '"'
+                          c  -> {
+                            VALUE str = string_content.value;
+                            if($1[0] != '\0') {
+                                str = rb_str_concat(str, rb_str_new2("#"));
+                            }
+                            $$.node = NEW_NODE(NODE_STR, str, 0, 0, $0sl, $0el);
+                          }
+                          rb -> {
+                            str = string_content
+                            if $1 != ""
+                              str.concat($1)
+                            end
+                            $$ = StrNode.new(string_content, $0sl, $0el)
+                          }
+sq_str_content      <-  sq_str_content:sq_str_content sq_str_chunk:sq_str_chunk
+                          c  -> {
+                            $$.value = rb_str_concat(sq_str_content.value, sq_str_chunk.value);
+                          }
+                          rb -> {
+                            $$ = sq_str_content.concat(sq_str_chunk)
+                          }
+                        / $$:sq_str_chunk
+                        / # none
+                          c  -> {
+                            $$.value = rb_str_new2("");
+                          }
+                          rb -> {
+                            $$ = ""
+                          }
+sq_str_chunk        <-  <([^\\']+ / '\\' [^\\'])+>
+                          c  -> {
+                            $$.value = rb_str_new2($1);
+                          }
+                          rb -> {
+                            $$ = $1
+                          }
+                      / <('\\\\' / '\\\'' )>
+                          c  -> {
+                            $$.value = rb_str_new($2 + 1, 1);
+                          }
+                          rb -> {
+                            $$ = $2[1, 1]
+                          }
+
+dq_str_content      <-  dq_str_content:dq_str_content dq_str_chunk:dq_str_chunk
+                          c  -> {
+                            $$.value = rb_str_concat(dq_str_content.value, dq_str_chunk.value);
+                          }
+                          rb -> {
+                            $$ = dq_str_content.concat(dq_str_chunk)
+                          }
+                        / $$:dq_str_chunk
+                        / # none
+                          c  -> {
+                            $$.value = rb_str_new2("");
+                          }
+                          rb -> {
+                            $$ = ""
+                          }
+dq_str_chunk        <-  <([^\\"#] / '#' [^\\"{])+>
+                          c  -> {
+                            $$.value = rb_str_new2($1);
+                          }
+                          rb -> {
+                            $$ = $1
+                          }
+                      / <('\\\\' / '\\"' )>
+                          c  -> {
+                            $$.value = rb_str_new($2 + 1, 1);
+                          }
+                          rb -> {
+                            $$ = $2[1, 1]
+                          }
+
+numeric             <-  $$:simple_numeric
+
+simple_numeric      <-  $$:tINTEGER
+
+tINTEGER            <-  '0' [Xx] < [0-9a-fA-F]+ ('_'+ [0-9a-fA-F]+)* >
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_LIT, tiny_ruby_parser_cstr2num($1, 16), 0, 0, $0sl, $0el);
+                          }
+                          rb -> {
+                            $$ = LitNode.new($1.gsub("_", "").to_i(16), $0sl, $0el)
+                          }
+                      / '0' [Oo] < [0-7]+ ('_'+ [_0-7]+)* >
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_LIT, tiny_ruby_parser_cstr2num($2, 8), 0, 0, $0sl, $0el);
+                          }
+                          rb -> {
+                            $$ = LitNode.new($2.gsub("_", "").to_i(8), $0sl, $0el)
+                          }
+                      / '0' [Bb] < [01]+ ('_'+ [_01]+)* >
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_LIT, tiny_ruby_parser_cstr2num($3, 2), 0, 0, $0sl, $0el);
+                          }
+                          rb -> {
+                            $$ = LitNode.new($3.gsub("_", "").to_i(2), $0sl, $0el)
+                          }
+                      / ('0' [Dd])? < [0-9]+ ('_'+ [0-9]+)* >
+                          c  -> {
+                            $$.node = NEW_NODE(NODE_LIT, tiny_ruby_parser_cstr2num($4, 10), 0, 0, $0sl, $0el);
+                          }
+                          rb -> {
+                            $$ = LitNode.new($4.gsub("_", "").to_i, $0sl, $0el)
+                          }
+
+tIDENTIFIER         <-  [a-z_] [a-zA-Z_0-9]*
+                          c  -> {
+                            $$.value = ID2SYM(rb_intern($0));
+                          }
+                          rb -> {
+                            $$ = $0.to_sym
+                          }
+
+tCONSTANT           <-  [A-Z] [a-zA-Z_0-9]*
+                          c  -> {
+                            $$.value = ID2SYM(rb_intern($0));
+                          }
+                          rb -> {
+                            $$ = $0.to_sym
+                          }
+
+term                <-  ';'
+                          c  -> {
+                            $$.value = LONG2NUM(';');
+                          }
+                          rb -> {
+                            $$ = ';'
+                          }
+                      / '\n'
+                          c  -> {
+                            $$.value = LONG2NUM('\n');
+                          }
+                          rb -> {
+                            $$ = '\n'
+                          }
+spaces              <-  [ \t\v\f\r]+
+
+%location
+  c  -> ${
+    static inline void packcr_location_init(packcr_location_t *lp) {
+        lp->lineno = 0;
+        lp->column = 0;
+    }
+
+    static inline void packcr_location_forward(packcr_location_t *lp, char *buf, size_t n) {
+        size_t i = 0;
+        for (; i < n; i++) {
+            if (buf[i] == '\n') {
+                lp->column = 0;
+                lp->lineno++;
+            } else {
+                lp->column++;
+            }
+        }
+    }
+
+    static inline packcr_location_t packcr_location_add(packcr_location_t l1, packcr_location_t l2) {
+        packcr_location_t l = { l1.lineno + l2.lineno, l2.column };
+        if (l2.lineno == 0) {
+          l.column += l1.column;
+        }
+        return l;
+    }
+
+    static inline packcr_location_t packcr_location_sub(packcr_location_t l1, packcr_location_t l2) {
+        packcr_location_t l = { l1.lineno - l2.lineno, l1.column - l2.column };
+        return l;
+    }
+  }
+  rb -> ${
+    class Location
+      attr_reader :lineno, :column
+
+      def initialize(lineno = 0, column = 0)
+        @lineno = lineno
+        @column = column
+      end
+
+      def +(other)
+        if other.lineno == 0
+          Location.new(@lineno + other.lineno, @column + other.column)
+        else
+          Location.new(@lineno + other.lineno,           other.column)
+        end
+      end
+
+      def -(other)
+        if other.lineno == self.lineno
+          Location.new(@lineno - other.lineno, @column - other.column)
+        elsif other.column == 0
+          Location.new(@lineno - other.lineno, @column - other.column)
+        else
+          raise "unexpected location #{self.inspect} - #{other.inspect}"
+        end
+      end
+
+      def forward(buffer, cur, n)
+        Location.new(@lineno, @column).forward!(buffer, cur, n)
+      end
+
+      def forward!(buffer, cur, n)
+        buffer[cur, n].scan(/(.*)(\n)?/) do
+          if Regexp.last_match[2]
+            @lineno += 1
+            @column = 0
+          else
+            @column += Regexp.last_match[1].length
+          end
+        end
+        self
+      end
+    end
+  }
+
+%header
+  c  -> ${
+    #include "ruby.h"
+    #undef __
+
+    #define NEW_NODE(t,a0,a1,a2,beg,end) tiny_ruby_parser_newnode((t),(VALUE)(a0),(VALUE)(a1),(VALUE)(a2),beg,end)
+
+    typedef struct packcr_location {
+        size_t lineno;
+        size_t column;
+    } packcr_location_t;
+    typedef packcr_location_t rb_code_position_t;
+
+    typedef struct rb_code_location_struct {
+        rb_code_position_t beg_pos;
+        rb_code_position_t end_pos;
+        size_t lineno;
+    } rb_code_location_t;
+
+    enum node_type {
+        NODE_SCOPE,
+        NODE_LIT,
+        NODE_STR,
+        NODE_LIST,
+        NODE_FCALL,
+        NODE_BLOCK,
+        NODE_OPCALL,
+        NODE_CALL,
+        NODE_QCALL,
+        NODE_DEFN,
+        NODE_SELF,
+        NODE_ARGS_AUX,
+        NODE_ARGS,
+        NODE_LASGN,
+        NODE_BEGIN,
+        NODE_CLASS,
+        NODE_COLON2,
+        NODE_LAST
+    };
+
+    struct tiny_ruby_parser_args_info {
+        int pre_args_num;
+    };
+
+    typedef struct RNode {
+        VALUE type;
+        union {
+            VALUE value;
+            struct RNode *node;
+        } u1;
+        union {
+            VALUE value;
+            struct RNode *node;
+            long argc;
+        } u2;
+        union {
+            VALUE value;
+            struct RNode *node;
+            struct tiny_ruby_parser_args_info  *args;
+        } u3;
+        rb_code_location_t nd_loc;
+        int node_id;
+        int newline;
+        VALUE var_table;
+    } NODE;
+
+    typedef union {
+        VALUE value;
+        NODE *node;
+    } tiny_ruby_value;
+
+    typedef struct {
+        struct tiny_ruby_parser_context_tag *ctx;
+    } tiny_ruby_context_ext;
+
+    #define nd_head  u1.node
+    #define nd_cpath u1.node
+    #define nd_vid   u1.value
+    #define nd_mid   u2.value
+    #define nd_end   u2.node
+    #define nd_value u2.node
+    #define nd_alen  u2.argc
+    #define nd_plen  u2.argc
+    #define nd_args  u3.node
+    #define nd_next  u3.node
+    #define nd_defn  u3.node
+    #define nd_super u3.node
+    #define nd_ainfo u3.args
+  }
+
+%source
+  c  -> ${
+    #define PACKCR_GETCHAR(auxil) tiny_ruby_parser_getchar()
+
+    int tiny_ruby_parser_getchar(void) {
+        VALUE rstdin = rb_gv_get("$stdin");
+        VALUE rchar = rb_funcall(rstdin, rb_intern("getc"), 0);
+        if (NIL_P(rchar)) return -1;
+        return NUM2INT(rb_funcall(rchar, rb_intern("ord"), 0));
+    }
+
+    static const rb_code_location_t NULL_LOC = { {0, -1}, {0, -1} };
+    VALUE tiny_ruby_parser_cstr2num(const char *str, int base) {
+        char *ptr;
+        long v = 0;
+        for (ptr = (char*)str; *ptr; ptr++) {
+            const char c = *ptr;
+            if (c >= '0' && c <= '9') {
+                v = v * base + c - '0';
+            } else if (c >= 'a' && c <= 'z') {
+                v = v * base + c - 'a' + 10;
+            } else if (c >= 'A' && c <= 'Z') {
+                v = v * base + c - 'A' + 10;
+            }
+        }
+        return LONG2NUM(v);
+    }
+
+    static int global_node_id = 0;
+
+    NODE *tiny_ruby_parser_newnode(enum node_type type, VALUE a0, VALUE a1, VALUE a2, const rb_code_position_t beg_pos, const rb_code_position_t end_pos) {
+        NODE *node = (NODE*)malloc(sizeof(NODE));
+        node->type = type;
+        node->u1.value = a0;
+        node->u2.value = a1;
+        node->u3.value = a2;
+        node->nd_loc.beg_pos = beg_pos;
+        node->nd_loc.end_pos = end_pos;
+        node->nd_loc.lineno = beg_pos.lineno;
+        node->node_id = global_node_id++;
+        node->newline = 0;
+        node->var_table = Qnil;
+        return node;
+    }
+
+    NODE *tiny_ruby_parser_block_append(NODE *head, NODE *tail) {
+        NODE *h = head, *end;
+        if (tail == 0) return head;
+        if (head == 0) return tail;
+        switch (head->type) {
+          case NODE_LIT:
+          case NODE_STR:
+            return tail;
+          case NODE_BLOCK:
+            end = head->nd_end;
+            break;
+          default:
+            h = end = NEW_NODE(NODE_BLOCK, head, 0, 0, head->nd_loc.beg_pos, head->nd_loc.end_pos);
+            end->var_table = head->var_table;
+            end->nd_end = end;
+            head = end;
+        }
+        if (tail->type != NODE_BLOCK) {
+            tail = NEW_NODE(NODE_BLOCK, tail, 0, 0, tail->nd_loc.beg_pos, tail->nd_loc.end_pos);
+            tail->nd_end = tail;
+        }
+        end->nd_next = tail;
+        h->nd_end = tail->nd_end;
+        head->nd_loc.end_pos = tail->nd_loc.end_pos;
+        return head;
+    }
+
+    NODE *tiny_ruby_parser_list_append(NODE *list, NODE *item) {
+      NODE *last;
+
+      if (list == 0) return NEW_NODE(NODE_LIST, item, 1, 0, item->nd_loc.beg_pos, item->nd_loc.end_pos);
+      if (list->nd_next) {
+         last = list->nd_next->nd_end;
+      } else {
+          last = list;
+      }
+
+      list->nd_alen += 1;
+      last->nd_next = NEW_NODE(NODE_LIST, item, 1, 0, item->nd_loc.beg_pos, item->nd_loc.end_pos);
+      list->nd_next->nd_end = last->nd_next;
+
+      list->nd_loc.end_pos = item->nd_loc.end_pos;
+
+      return list;
+    }
+
+    void tiny_ruby_parser_var_table_add(NODE *node, VALUE sym) {
+        if (NIL_P(node->var_table)) {
+            node->var_table = rb_ary_new();
+        }
+        rb_ary_push(node->var_table, sym);
+    }
+
+    void tiny_ruby_parser_var_table_pass(NODE *dst, NODE *src) {
+        if (!src) {
+            return;
+        }
+        if (!NIL_P(src->var_table)) {
+            if (NIL_P(dst->var_table)) {
+                dst->var_table = src->var_table;
+            } else {
+                rb_ary_concat(dst->var_table, src->var_table);
+            }
+        }
+        src->var_table = Qnil;
+    }
+
+    NODE *tiny_ruby_parser_set_defun_body(NODE *n, NODE *args, NODE *body, const rb_code_position_t beg_pos, const rb_code_position_t end_pos) {
+        VALUE tbl;
+        tiny_ruby_parser_var_table_pass(args, body);
+        tbl = args->var_table;
+        if (NIL_P(tbl)) {
+            tbl = rb_ary_new();
+        }
+        n->nd_defn = NEW_NODE(NODE_SCOPE, tbl, body, args, beg_pos, end_pos);
+        args->var_table = Qnil;
+        n->nd_loc.beg_pos = beg_pos;
+        n->nd_loc.end_pos = end_pos;
+        return n;
+    }
+
+    VALUE tiny_ruby_parser_i_inspect(RB_BLOCK_CALL_FUNC_ARGLIST(item, dummy)) {
+        return rb_inspect(item);
+    }
+
+    void tiny_ruby_parser_dump_node(NODE *node, VALUE indent) {
+        printf("%s", RSTRING_PTR(indent));
+        if (node == 0) {
+            printf("(null node)\n");
+            return;
+        }
+        printf("@ ");
+        switch(node->type) {
+          #define nt(t) \
+          case t: \
+            printf(#t);\
+            break
+          nt(NODE_SCOPE);
+          nt(NODE_LIT);
+          nt(NODE_STR);
+          nt(NODE_LIST);
+          nt(NODE_FCALL);
+          nt(NODE_OPCALL);
+          nt(NODE_QCALL);
+          nt(NODE_CALL);
+          nt(NODE_BLOCK);
+          nt(NODE_DEFN);
+          nt(NODE_ARGS);
+          nt(NODE_LASGN);
+          nt(NODE_BEGIN);
+          nt(NODE_CLASS);
+          nt(NODE_COLON2);
+          #undef nt
+          default:
+            printf("(INVALID TYPE: %ld)", node->type);
+        }
+        printf(" (id: %d, line: %ld, location: (%ld,%ld)-(%ld,%ld))",
+            node->node_id, node->nd_loc.lineno + 1,
+            node->nd_loc.beg_pos.lineno + 1, node->nd_loc.beg_pos.column,
+            node->nd_loc.end_pos.lineno + 1, node->nd_loc.end_pos.column
+        );
+        if(node->newline) {
+            printf("*");
+        }
+        printf("\n");
+        switch(node->type) {
+          case NODE_SCOPE:
+            printf("%s+- nd_tbl: ", RSTRING_PTR(indent));
+            fflush(stdout);
+            if (!node->u1.value || NIL_P(node->u1.value) || RARRAY_LEN(node->u1.value) == 0) {
+                printf("(empty)\n");
+            } else {
+                VALUE strs = rb_block_call(node->u1.value, rb_intern("map"), 0, NULL,tiny_ruby_parser_i_inspect, Qnil);
+                VALUE str = rb_funcall(strs, rb_intern("join"), 1, rb_str_new_cstr(","));
+                rb_funcall(rb_mKernel, rb_intern("puts"), 1, str);
+                rb_funcall(rb_const_get(rb_mKernel, rb_intern("STDOUT")), rb_intern("flush"), 0);
+            }
+            printf("%s+- nd_args:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "|   ", 4);
+            tiny_ruby_parser_dump_node(node->nd_args, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            printf("%s+- nd_body:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "    ", 4);
+            tiny_ruby_parser_dump_node(node->u2.node, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            break;
+          case NODE_LIT:
+          case NODE_STR:
+            printf("%s+- nd_lit: ", RSTRING_PTR(indent));
+            fflush(stdout);
+            rb_p(node->u1.value);
+            rb_funcall(rb_const_get(rb_mKernel, rb_intern("STDOUT")), rb_intern("flush"), 0);
+            break;
+          case NODE_FCALL:
+            printf("%s+- nd_mid: ", RSTRING_PTR(indent));
+            fflush(stdout);
+            rb_p(node->u2.value);
+            rb_funcall(rb_const_get(rb_mKernel, rb_intern("STDOUT")), rb_intern("flush"), 0);
+            printf("%s+- nd_args:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "    ", 4);
+            tiny_ruby_parser_dump_node(node->u3.node, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            break;
+          case NODE_OPCALL:
+          case NODE_CALL:
+          case NODE_QCALL:
+            printf("%s+- nd_mid: ", RSTRING_PTR(indent));
+            fflush(stdout);
+            rb_p(node->u2.value);
+            rb_funcall(rb_const_get(rb_mKernel, rb_intern("STDOUT")), rb_intern("flush"), 0);
+            printf("%s+- nd_recv:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "|   ", 4);
+            tiny_ruby_parser_dump_node(node->u1.node, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            printf("%s+- nd_args:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "    ", 4);
+            tiny_ruby_parser_dump_node(node->u3.node, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            break;
+          case NODE_LIST:
+            printf("%s+- nd_alen: %ld\n", RSTRING_PTR(indent), node->u2.argc);
+            {
+                NODE *n;
+                for (n = node; n; n = n->nd_next) {
+                    printf("%s+- nd_head:\n", RSTRING_PTR(indent));
+                    rb_str_cat(indent, "|   ", 4);
+                    tiny_ruby_parser_dump_node(n->u1.node, indent);
+                    rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+                }
+            }
+            printf("%s+- nd_next:\n", RSTRING_PTR(indent));
+            printf("%s    (null node)\n", RSTRING_PTR(indent));
+            break;
+          case NODE_BLOCK:
+            {
+                NODE *n;
+                int i;
+                VALUE child_indent = rb_str_cat(rb_str_dup(indent), "|   ", 4);
+                for (n = node, i = 1; n; i++, n = n->nd_next) {
+                    printf("%s+- nd_head (%d):\n", RSTRING_PTR(indent), i);
+                    if (n == node->nd_end) {
+                        child_indent = rb_str_cat(rb_str_dup(indent), "    ", 4);
+                    }
+                    tiny_ruby_parser_dump_node(n->nd_head, child_indent);
+                }
+            }
+            break;
+          case NODE_DEFN:
+            printf("%s+- nd_mid: ", RSTRING_PTR(indent));
+            fflush(stdout);
+            rb_p(node->u2.value);
+            rb_funcall(rb_const_get(rb_mKernel, rb_intern("STDOUT")), rb_intern("flush"), 0);
+            printf("%s+- nd_defn:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "    ", 4);
+            tiny_ruby_parser_dump_node(node->nd_defn, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            break;
+          case NODE_ARGS:
+            printf("%s+- nd_ainfo->pre_args_num: %d\n", RSTRING_PTR(indent), node->nd_ainfo->pre_args_num);
+            printf("%s+- nd_ainfo->pre_init:\n", RSTRING_PTR(indent));
+            printf("%s|   (null node)\n", RSTRING_PTR(indent));
+            printf("%s+- nd_ainfo->post_args_num: 0\n", RSTRING_PTR(indent));
+            printf("%s+- nd_ainfo->post_init:\n", RSTRING_PTR(indent));
+            printf("%s|   (null node)\n", RSTRING_PTR(indent));
+            printf("%s+- nd_ainfo->first_post_arg: (null)\n", RSTRING_PTR(indent));
+            printf("%s+- nd_ainfo->rest_arg: (null)\n", RSTRING_PTR(indent));
+            printf("%s+- nd_ainfo->block_arg: (null)\n", RSTRING_PTR(indent));
+            printf("%s+- nd_ainfo->opt_args:\n", RSTRING_PTR(indent));
+            printf("%s|   (null node)\n", RSTRING_PTR(indent));
+            printf("%s+- nd_ainfo->kw_args:\n", RSTRING_PTR(indent));
+            printf("%s|   (null node)\n", RSTRING_PTR(indent));
+            printf("%s+- nd_ainfo->kw_rest_arg:\n", RSTRING_PTR(indent));
+            printf("%s    (null node)\n", RSTRING_PTR(indent));
+            break;
+          case NODE_LASGN:
+            printf("%s+- nd_vid: ", RSTRING_PTR(indent));
+            fflush(stdout);
+            rb_p(node->nd_vid);
+            rb_funcall(rb_const_get(rb_mKernel, rb_intern("STDOUT")), rb_intern("flush"), 0);
+            printf("%s+- nd_value:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "    ", 4);
+            tiny_ruby_parser_dump_node(node->nd_value, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            break;
+          case NODE_BEGIN:
+            printf("%s+- nd_body:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "    ", 4);
+            tiny_ruby_parser_dump_node(node->u2.node, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            break;
+          case NODE_CLASS:
+            printf("%s+- nd_cpath:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "|   ", 4);
+            tiny_ruby_parser_dump_node(node->nd_cpath, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            printf("%s+- nd_super:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "|   ", 4);
+            tiny_ruby_parser_dump_node(node->nd_super, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            printf("%s+- nd_body:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "        ", 4);
+            tiny_ruby_parser_dump_node(node->u2.node, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            break;
+          case NODE_COLON2:
+            printf("%s+- nd_mid: ", RSTRING_PTR(indent));
+            fflush(stdout);
+            rb_p(node->u2.value);
+            rb_funcall(rb_const_get(rb_mKernel, rb_intern("STDOUT")), rb_intern("flush"), 0);
+            printf("%s+- nd_head:\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "    ", 4);
+            tiny_ruby_parser_dump_node(node->u1.node, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+        }
+    }
+  }
+  rb -> ${
+    class << TinyRubyParser
+      def block_append(head, tail)
+        if !head
+          return tail
+        end
+        head.block_append(tail)
+      end
+
+      def list_append(list, item)
+        if !list
+          return ListNode.new(item, item.nd_loc.beg_pos, item.nd_loc.end_pos)
+        end
+
+        if list.nd_next
+          last = list.nd_next.nd_end
+        else
+          last = list
+        end
+
+        list.nd_alen += 1
+        last.nd_next = ListNode.new(item, item.nd_loc.beg_pos, item.nd_loc.end_pos)
+        list.nd_next.nd_end = last.nd_next
+
+        list.nd_loc.end_pos = item.nd_loc.end_pos
+
+        list
+      end
+
+      def set_defun_body(n, args, body, beg_pos, end_pos)
+        args.var_table_pass(body)
+        n.nd_defn = ScopeNode.new(args.var_table || [], body, args, beg_pos, end_pos)
+        args.var_table = nil
+        n.nd_loc.beg_pos = beg_pos
+        n.nd_loc.end_pos = end_pos
+        n
+      end
+    end
+
+    class CodeLocation
+      attr_accessor :beg_pos, :end_pos, :lineno
+
+      def initialize(beg_pos, end_pos)
+        @beg_pos = beg_pos
+        @end_pos = end_pos
+        @lineno = beg_pos.lineno
+      end
+    end
+
+    NULL_LOC = CodeLocation.new(Location.new(0, -1), Location.new(0, -1))
+
+    class Node
+      attr_accessor :u1, :u2, :u3, :nd_loc, :node_id, :var_table
+      attr_accessor :newline
+
+      @current_id = 0
+      class << self
+        def next_id
+          id = @current_id
+          @current_id += 1
+          id
+        end
+
+        def debug_dump(node, indent)
+          if !node
+            puts "#{indent}(null node)"
+          else
+            node.debug_dump(indent)
+          end
+        end
+
+        def node_accessor(name, uname)
+          alias_method name, uname
+          alias_method :"#{name}=",  :"#{uname}="
+        end
+      end
+
+      def initialize(u1, u2, u3, beg_pos, end_pos)
+        @u1 = u1
+        @u2 = u2
+        @u3 = u3
+        @nd_loc = CodeLocation.new(beg_pos, end_pos)
+        @node_id = Node.next_id
+      end
+
+      def debug_dump(indent)
+        puts "#{indent}@ #{label} (id: #{@node_id}, line: #{@nd_loc.lineno + 1}, location: (#{@nd_loc.beg_pos.lineno + 1},#{@nd_loc.beg_pos.column})-(#{@nd_loc.end_pos.lineno + 1},#{@nd_loc.end_pos.column}))#{newline ? "*" : ""}"
+      end
+
+      def to_block
+        block_node = BlockNode.new(self, nd_loc.beg_pos, nd_loc.end_pos)
+        block_node.var_table = self.var_table
+        block_node
+      end
+
+      def block_append(tail)
+        h = e = to_block
+        e.nd_end = e
+        head = e
+        return head if !tail
+        z = tail
+        tail = tail.to_block
+        raise z.inspect if !tail
+        e.nd_next = tail
+        h.nd_end = tail.nd_end
+        head.nd_loc.end_pos = tail.nd_loc.end_pos
+        head
+      end
+
+      def var_table_add(sym)
+        @var_table ||= []
+        @var_table << sym
+      end
+
+      def var_table_pass(src)
+        return if !src
+        if src.var_table
+          if @var_table
+            @var_table.concat(src.var_table)
+          else
+            @var_table = src.var_table
+          end
+        end
+        src.var_table = nil
+      end
+
+      node_accessor :nd_head,  :u1
+      node_accessor :nd_cpath, :u1
+      node_accessor :nd_tbl,   :u1
+      node_accessor :nd_vid,   :u1
+      node_accessor :nd_alen,  :u2
+      node_accessor :nd_end,   :u2
+      node_accessor :nd_value, :u2
+      node_accessor :nd_mid,   :u2
+      node_accessor :nd_plen,  :u2
+      node_accessor :nd_next,  :u3
+      node_accessor :nd_args,  :u3
+      node_accessor :nd_defn,  :u3
+      node_accessor :nd_ainfo, :u3
+      node_accessor :nd_super, :u3
+    end
+
+    class LitNode < Node
+      def initialize(u1, beg_pos, end_pos)
+        super(u1, nil, nil, beg_pos, end_pos)
+      end
+
+      def label
+        "NODE_LIT"
+      end
+
+      def debug_dump(indent)
+        super
+        puts "#{indent}+- nd_lit: #{@u1.inspect}"
+      end
+
+      def block_append(tail)
+        tail
+      end
+    end
+
+    class StrNode < LitNode
+      def label
+        "NODE_STR"
+      end
+    end
+
+    class ScopeNode < Node
+      def label
+        "NODE_SCOPE"
+      end
+
+      def debug_dump(indent)
+        super
+        print "#{indent}+- nd_tbl: "
+        if @u1.empty?
+          puts "(empty)"
+        else
+          puts @u1.map(&:inspect).join(",")
+        end
+        puts "#{indent}+- nd_args:"
+        Node.debug_dump(nd_args, indent + "|   ")
+        puts "#{indent}+- nd_body:"
+        Node.debug_dump(@u2, indent + "    ")
+      end
+    end
+
+    class ListNode < Node
+      def initialize(u1, beg_pos, end_pos)
+        super(u1, 1, nil, beg_pos, end_pos)
+      end
+
+      def label
+        "NODE_LIST"
+      end
+
+      def debug_dump(indent)
+        super
+
+        puts "#{indent}+- nd_alen: #{@u2}"
+        n = self
+        begin
+          puts "#{indent}+- nd_head:"
+          Node.debug_dump(n.u1, indent + "|   ")
+          n = n.nd_next
+        end while n
+        puts "#{indent}+- nd_next:",
+             "#{indent}    (null node)"
+      end
+    end
+
+    class CallNode < Node
+      def label
+        "NODE_CALL"
+      end
+
+      def debug_dump_recv(indent)
+        puts "#{indent}+- nd_recv:"
+        Node.debug_dump(@u1, indent + "|   ")
+      end
+
+      def debug_dump(indent)
+        super
+        puts "#{indent}+- nd_mid: #{u2.inspect}"
+        debug_dump_recv(indent)
+        puts "#{indent}+- nd_args:"
+        Node.debug_dump(@u3, indent + "    ")
+      end
+    end
+
+    class QCallNode < CallNode
+      def label
+        "NODE_QCALL"
+      end
+    end
+
+    class FCallNode < CallNode
+      def initialize(u2, u3, beg_pos, end_pos)
+        super(nil, u2, u3, beg_pos, end_pos)
+      end
+
+      def label
+        "NODE_FCALL"
+      end
+
+      def debug_dump_recv(...)
+      end
+    end
+
+    class OpCallNode < CallNode
+      def label
+        "NODE_OPCALL"
+      end
+    end
+
+    class BlockNode < Node
+      def initialize(u1, beg_pos, end_pos)
+        super(u1, self, nil, beg_pos, end_pos)
+      end
+
+      def label
+        "NODE_BLOCK"
+      end
+
+      def to_block
+        self
+      end
+
+      def block_append(tail)
+        e = nd_end
+        return self if !tail
+        tail = tail.to_block
+        e.nd_next = tail
+        self.nd_end = tail.nd_end
+        self.nd_loc.end_pos = tail.nd_loc.end_pos
+        self
+      end
+
+      def debug_dump(indent)
+        super
+        child_indent = indent + "|   "
+        n = self
+        i = 1
+        while n
+          puts "#{indent}+- nd_head (#{i}):"
+          if n == nd_end
+            child_indent = indent + "    "
+          end
+          Node.debug_dump(n.nd_head, child_indent)
+          i += 1
+          n = n.nd_next
+        end
+      end
+    end
+
+    class SelfNode < Node
+    end
+
+    class DefnNode < Node
+      def initialize(u2, u3, beg_pos, end_pos)
+        super(nil, u2, u3, beg_pos, end_pos)
+      end
+
+      def label
+        "NODE_DEFN"
+      end
+
+      def debug_dump(indent)
+        super
+        puts "#{indent}+- nd_mid: #{u2.inspect}"
+        puts "#{indent}+- nd_defn:"
+        Node.debug_dump(@u3, indent + "    ")
+      end
+    end
+
+    class ArgsInfo
+      attr_accessor :pre_args_num
+
+      def initialize
+        @pre_args_num = 0
+      end
+    end
+
+    class ArgsAuxNode < Node
+      def initialize(u1, u2, beg_pos, end_pos)
+        super(u1, u2, nil, beg_pos, end_pos)
+      end
+    end
+
+    class ArgsNode < Node
+      def label
+        "NODE_ARGS"
+      end
+
+      def debug_dump(indent)
+        super
+        puts "#{indent}+- nd_ainfo->pre_args_num: #{@u3.pre_args_num}"
+        puts "#{indent}+- nd_ainfo->pre_init:"
+        puts "#{indent}|   (null node)"
+        puts "#{indent}+- nd_ainfo->post_args_num: 0"
+        puts "#{indent}+- nd_ainfo->post_init:"
+        puts "#{indent}|   (null node)"
+        puts "#{indent}+- nd_ainfo->first_post_arg: (null)"
+        puts "#{indent}+- nd_ainfo->rest_arg: (null)"
+        puts "#{indent}+- nd_ainfo->block_arg: (null)"
+        puts "#{indent}+- nd_ainfo->opt_args:"
+        puts "#{indent}|   (null node)"
+        puts "#{indent}+- nd_ainfo->kw_args:"
+        puts "#{indent}|   (null node)"
+        puts "#{indent}+- nd_ainfo->kw_rest_arg:"
+        puts "#{indent}    (null node)"
+      end
+    end
+
+    class LasgnNode < Node
+      def initialize(u1, u2, beg_pos, end_pos)
+        super(u1, u2, nil, beg_pos, end_pos)
+      end
+
+      def label
+        "NODE_LASGN"
+      end
+
+      def debug_dump(indent)
+        super
+        puts "#{indent}+- nd_vid: #{nd_vid.inspect}"
+        puts "#{indent}+- nd_value:"
+        Node.debug_dump(nd_value, indent + "    ")
+      end
+    end
+
+    class BeginNode < Node
+      def label
+        "NODE_BEGIN"
+      end
+
+      def debug_dump(indent)
+        super
+        puts "#{indent}+- nd_body:"
+        Node.debug_dump(@u2, indent + "    ")
+      end
+    end
+
+    class ClassNode < Node
+      def label
+        "NODE_CLASS"
+      end
+
+      def debug_dump(indent)
+        super
+        puts "#{indent}+- nd_cpath:"
+        Node.debug_dump(nd_cpath, indent + "|   ")
+        puts "#{indent}+- nd_super:"
+        Node.debug_dump(nd_super, indent + "|   ")
+        puts "#{indent}+- nd_body:"
+        Node.debug_dump(@u2, indent + "    ")
+      end
+    end
+
+    class Colon2Node < Node
+      def initialize(u1, u2, beg_pos, end_pos)
+        super(u1, u2, nil, beg_pos, end_pos)
+      end
+
+      def label
+        "NODE_COLON2"
+      end
+
+      def debug_dump(indent)
+        super
+        puts "#{indent}+- nd_mid: #{u2.inspect}"
+        puts "#{indent}+- nd_head:"
+        Node.debug_dump(@u1, indent + "    ")
+      end
+    end
+  }
+
+%latesource
+  c  -> ${
+    VALUE parser_run(VALUE self) {
+        tiny_ruby_context_ext auxil;
+        tiny_ruby_parser_context_t *ctx = tiny_ruby_parser_create(&auxil);
+        auxil.ctx = ctx;
+        while (tiny_ruby_parser_parse(ctx, NULL));
+        tiny_ruby_parser_destroy(ctx);
+        return Qnil;
+    }
+
+    void Init_tiny_ruby_parser(void) {
+        VALUE cTinyRubyParser = rb_define_class("TinyRubyParser", rb_cObject);
+        rb_define_method(cTinyRubyParser, "run", parser_run, 0);
+    }
+  }
+  rb -> ${
+    if ENV["MAKE"] == "1"
+      require "mkmf"
+      create_makefile("tiny_ruby_parser")
+      system("make", out: :err) || raise
+      exit
+    end
+    if ENV["EXT"] == "1"
+      require "tiny_ruby_parser.so"
+    end
+    if ARGV[0]
+      require "stringio"
+      str = ARGV[0]
+      $stdin = StringIO.new("#{str}\n", "r")
+    end
+    TinyRubyParser.new().run
+  }
