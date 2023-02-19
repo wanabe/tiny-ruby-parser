@@ -33,8 +33,17 @@ RSpec.describe "tyny-ruby-parser" do
       "a = 1",
       "1 + 2 * 3 - 4 / 5",
       "def foo; end",
+      "def foo(a) end",
       "def foo(a); b = 1; end",
       "class Foo; def foo; end end",
+      "def foo(*) end",
+      "def foo(*a) end",
+      "def foo(a, *b) end",
+      "def foo(**) end",
+      "def foo(**a) end",
+      "def foo(a, **b) end",
+      "def foo(*a, **b) end",
+      File.read(__FILE__)[/\A(.*\n?){,4}/] + "end",
     ]
   end
 

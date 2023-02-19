@@ -151,6 +151,13 @@ void tiny_ruby_parser_var_table_add(NODE *node, VALUE sym) {
     rb_ary_push(node->var_table, sym);
 }
 
+void tiny_ruby_parser_var_table_unshift(NODE *node, VALUE sym) {
+    if (NIL_P(node->var_table)) {
+        node->var_table = rb_ary_new();
+    }
+    rb_ary_unshift(node->var_table, sym);
+}
+
 void tiny_ruby_parser_var_table_pass(NODE *dst, NODE *src) {
     if (!src) {
         return;
@@ -173,6 +180,7 @@ NODE *tiny_ruby_parser_set_defun_body(NODE *n, NODE *args, NODE *body, const rb_
         tbl = rb_ary_new();
     }
     n->nd_defn = NEW_NODE(NODE_SCOPE, tbl, body, args, beg_pos, end_pos);
+    n->nd_defn->nd_loc.lineno = end_pos.lineno;
     args->var_table = Qnil;
     n->nd_loc.beg_pos = beg_pos;
     n->nd_loc.end_pos = end_pos;
@@ -181,6 +189,14 @@ NODE *tiny_ruby_parser_set_defun_body(NODE *n, NODE *args, NODE *body, const rb_
 
 VALUE tiny_ruby_parser_i_inspect(RB_BLOCK_CALL_FUNC_ARGLIST(item, dummy)) {
     return rb_inspect(item);
+}
+
+void tiny_ruby_parser_dump_id(ID id) {
+    if (id) {
+        printf(":%s\n", rb_id2name(id));
+    } else {
+        printf("(null)\n");
+    }
 }
 
 void tiny_ruby_parser_dump_node(NODE *node, VALUE indent) {
@@ -207,6 +223,7 @@ void tiny_ruby_parser_dump_node(NODE *node, VALUE indent) {
       nt(NODE_DEFN);
       nt(NODE_ARGS);
       nt(NODE_LASGN);
+      nt(NODE_DVAR);
       nt(NODE_BEGIN);
       nt(NODE_CLASS);
       nt(NODE_COLON2);
@@ -323,14 +340,23 @@ void tiny_ruby_parser_dump_node(NODE *node, VALUE indent) {
         printf("%s+- nd_ainfo->post_init:\n", RSTRING_PTR(indent));
         printf("%s|   (null node)\n", RSTRING_PTR(indent));
         printf("%s+- nd_ainfo->first_post_arg: (null)\n", RSTRING_PTR(indent));
-        printf("%s+- nd_ainfo->rest_arg: (null)\n", RSTRING_PTR(indent));
+        printf("%s+- nd_ainfo->rest_arg: ", RSTRING_PTR(indent));
+        tiny_ruby_parser_dump_id(node->nd_ainfo->rest_arg);
         printf("%s+- nd_ainfo->block_arg: (null)\n", RSTRING_PTR(indent));
         printf("%s+- nd_ainfo->opt_args:\n", RSTRING_PTR(indent));
         printf("%s|   (null node)\n", RSTRING_PTR(indent));
         printf("%s+- nd_ainfo->kw_args:\n", RSTRING_PTR(indent));
         printf("%s|   (null node)\n", RSTRING_PTR(indent));
         printf("%s+- nd_ainfo->kw_rest_arg:\n", RSTRING_PTR(indent));
-        printf("%s    (null node)\n", RSTRING_PTR(indent));
+        rb_str_cat(indent, "    ", 4);
+        tiny_ruby_parser_dump_node(node->nd_ainfo->kw_rest_arg, indent);
+        rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+        break;
+      case NODE_DVAR:
+        printf("%s+- nd_vid: ", RSTRING_PTR(indent));
+        fflush(stdout);
+        rb_p(node->nd_vid);
+        rb_funcall(rb_const_get(rb_mKernel, rb_intern("STDOUT")), rb_intern("flush"), 0);
         break;
       case NODE_LASGN:
         printf("%s+- nd_vid: ", RSTRING_PTR(indent));
@@ -2451,7 +2477,8 @@ static void packcr_action_f_arglist_0(tiny_ruby_parser_context_t *__packcr_ctx, 
 #define _2el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capts.buf[1]->range.end_loc)))
 #define _2c (*__packcr_in->data.leaf.capts.buf[1])
     __ = f_paren_args;
-    if(_2[0] != '\0') {
+    /* for compatiblility */
+    if(_2[0] != '\0' && !__.node->nd_ainfo->rest_arg) {
       __.node->nd_head = NEW_NODE(NODE_BEGIN, 0, 0, 0, _1sl, _1sl);
     }
 #undef _2el
@@ -2538,7 +2565,106 @@ static void packcr_action_f_paren_args_0(tiny_ruby_parser_context_t *__packcr_ct
 static void packcr_action_f_args_0(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
 #define auxil (__packcr_ctx->auxil)
 #define __ (*__packcr_out)
-#define f_arg (*__packcr_in->data.leaf.values.buf[0])
+#define _out (*__packcr_in->data.leaf.values.buf[0])
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    __ = _out;
+#undef _0e
+#undef _0s
+#undef _0
+#undef _out
+#undef __
+#undef auxil
+}
+
+static void packcr_action_f_args_1(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define f_rest_arg (*__packcr_in->data.leaf.values.buf[1])
+#define opt_args_tail (*__packcr_in->data.leaf.values.buf[2])
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    __ = opt_args_tail;
+    __.node->nd_loc.beg_pos = _0c.range.start_loc;
+    __.node->nd_loc.end_pos = _0c.range.end_loc;
+    __.node->nd_ainfo->rest_arg = SYM2ID(f_rest_arg.value);
+    tiny_ruby_parser_var_table_unshift(__.node, f_rest_arg.value);
+#undef _0e
+#undef _0s
+#undef _0
+#undef opt_args_tail
+#undef f_rest_arg
+#undef __
+#undef auxil
+}
+
+static void packcr_action_f_args_2(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define f_arg (*__packcr_in->data.leaf.values.buf[3])
+#define args_tail (*__packcr_in->data.leaf.values.buf[4])
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    __ = args_tail;
+    __.node->nd_loc.beg_pos = _0c.range.start_loc;
+    __.node->nd_loc.end_pos = _0c.range.end_loc;
+    __.node->nd_ainfo->pre_args_num = RARRAY_LEN(f_arg.node->var_table);
+    tiny_ruby_parser_var_table_pass(f_arg.node, __.node);
+    tiny_ruby_parser_var_table_pass(__.node, f_arg.node);
+#undef _0e
+#undef _0s
+#undef _0
+#undef args_tail
+#undef f_arg
+#undef __
+#undef auxil
+}
+
+static void packcr_action_f_args_3(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define f_arg (*__packcr_in->data.leaf.values.buf[3])
+#define f_rest_arg (*__packcr_in->data.leaf.values.buf[1])
+#define opt_args_tail (*__packcr_in->data.leaf.values.buf[2])
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    __ = opt_args_tail;
+    __.node->nd_loc.beg_pos = _0c.range.start_loc;
+    __.node->nd_loc.end_pos = _0c.range.end_loc;
+    __.node->nd_ainfo->pre_args_num = RARRAY_LEN(f_arg.node->var_table);
+    __.node->nd_ainfo->rest_arg = SYM2ID(f_rest_arg.value);
+    tiny_ruby_parser_var_table_pass(__.node, f_arg.node);
+    tiny_ruby_parser_var_table_add(__.node, f_rest_arg.value);
+#undef _0e
+#undef _0s
+#undef _0
+#undef opt_args_tail
+#undef f_rest_arg
+#undef f_arg
+#undef __
+#undef auxil
+}
+
+static void packcr_action_f_args_4(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define f_arg (*__packcr_in->data.leaf.values.buf[3])
 #define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
 #define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
 #define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
@@ -2546,8 +2672,10 @@ static void packcr_action_f_args_0(tiny_ruby_parser_context_t *__packcr_ctx, pac
 #define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
 #define _0c __packcr_in->data.leaf.capt0
     struct tiny_ruby_parser_args_info *args = calloc(1, sizeof(struct tiny_ruby_parser_args_info));
-    args->pre_args_num = RARRAY_LEN(f_arg.node->var_table);
     __.node = NEW_NODE(NODE_ARGS, 0, 0, args, _0sl, _0el);
+    __.node->nd_loc.beg_pos = _0c.range.start_loc;
+    __.node->nd_loc.end_pos = _0c.range.end_loc;
+    __.node->nd_ainfo->pre_args_num = RARRAY_LEN(f_arg.node->var_table);
     tiny_ruby_parser_var_table_pass(__.node, f_arg.node);
 #undef _0e
 #undef _0s
@@ -2557,7 +2685,7 @@ static void packcr_action_f_args_0(tiny_ruby_parser_context_t *__packcr_ctx, pac
 #undef auxil
 }
 
-static void packcr_action_f_args_1(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+static void packcr_action_f_args_5(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
 #define auxil (__packcr_ctx->auxil)
 #define __ (*__packcr_out)
 #define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
@@ -2568,6 +2696,177 @@ static void packcr_action_f_args_1(tiny_ruby_parser_context_t *__packcr_ctx, pac
 #define _0c __packcr_in->data.leaf.capt0
     struct tiny_ruby_parser_args_info *args = calloc(1, sizeof(struct tiny_ruby_parser_args_info));
     __.node = NEW_NODE(NODE_ARGS, 0, 0, args, _0sl, _0el);
+#undef _0e
+#undef _0s
+#undef _0
+#undef __
+#undef auxil
+}
+
+static void packcr_action_opt_args_tail_0(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define _out (*__packcr_in->data.leaf.values.buf[0])
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    __ = _out;
+#undef _0e
+#undef _0s
+#undef _0
+#undef _out
+#undef __
+#undef auxil
+}
+
+static void packcr_action_opt_args_tail_1(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    struct tiny_ruby_parser_args_info *args = calloc(1, sizeof(struct tiny_ruby_parser_args_info));
+    __.node = NEW_NODE(NODE_ARGS, 0, 0, args, _0sl, _0el);
+#undef _0e
+#undef _0s
+#undef _0
+#undef __
+#undef auxil
+}
+
+static void packcr_action_args_tail_0(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define f_any_kwrest (*__packcr_in->data.leaf.values.buf[0])
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    struct tiny_ruby_parser_args_info *args = calloc(1, sizeof(struct tiny_ruby_parser_args_info));
+    __.node = NEW_NODE(NODE_ARGS, 0, 0, args, _0sl, _0el);
+    if (SYM2ID(f_any_kwrest.value) == rb_intern("nil")) {
+        args->no_kwarg = 1;
+    } else {
+        args->kw_rest_arg = NEW_NODE(NODE_DVAR, f_any_kwrest.value, 0, 0, _0sl, _0el);
+        tiny_ruby_parser_var_table_add(__.node, f_any_kwrest.value);
+    }
+#undef _0e
+#undef _0s
+#undef _0
+#undef f_any_kwrest
+#undef __
+#undef auxil
+}
+
+static void packcr_action_f_any_kwrest_0(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define _out (*__packcr_in->data.leaf.values.buf[0])
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    __ = _out;
+#undef _0e
+#undef _0s
+#undef _0
+#undef _out
+#undef __
+#undef auxil
+}
+
+static void packcr_action_f_any_kwrest_1(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    __.value = ID2SYM(rb_intern("nil"));
+#undef _0e
+#undef _0s
+#undef _0
+#undef __
+#undef auxil
+}
+
+static void packcr_action_f_kwrest_0(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define _out (*__packcr_in->data.leaf.values.buf[0])
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    __ = _out;
+#undef _0e
+#undef _0s
+#undef _0
+#undef _out
+#undef __
+#undef auxil
+}
+
+static void packcr_action_f_kwrest_1(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    __.value = ID2SYM(rb_intern("**"));
+#undef _0e
+#undef _0s
+#undef _0
+#undef __
+#undef auxil
+}
+
+static void packcr_action_f_rest_arg_0(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define _out (*__packcr_in->data.leaf.values.buf[0])
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    __ = _out;
+#undef _0e
+#undef _0s
+#undef _0
+#undef _out
+#undef __
+#undef auxil
+}
+
+static void packcr_action_f_rest_arg_1(tiny_ruby_parser_context_t *__packcr_ctx, packcr_thunk_t *__packcr_in, packcr_value_t *__packcr_out) {
+#define auxil (__packcr_ctx->auxil)
+#define __ (*__packcr_out)
+#define _0 packcr_get_capture_string(__packcr_ctx, &__packcr_in->data.leaf.capt0)
+#define _0s ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.start))
+#define _0e ((const size_t)(__packcr_ctx->buffer_start_position + __packcr_in->data.leaf.capt0.range.end))
+#define _0sl ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.start_loc)))
+#define _0el ((const packcr_location_t)(packcr_location_add(__packcr_ctx->buffer_start_position_loc, __packcr_in->data.leaf.capt0.range.end_loc)))
+#define _0c __packcr_in->data.leaf.capt0
+    __.value = ID2SYM(rb_intern("*"));
 #undef _0e
 #undef _0s
 #undef _0
@@ -3286,6 +3585,12 @@ static packcr_thunk_chunk_t *packcr_evaluate_rule_def_name(packcr_context_t *ctx
 static packcr_thunk_chunk_t *packcr_evaluate_rule_f_arglist(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
 static packcr_thunk_chunk_t *packcr_evaluate_rule_f_paren_args(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
 static packcr_thunk_chunk_t *packcr_evaluate_rule_f_args(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
+static packcr_thunk_chunk_t *packcr_evaluate_rule_opt_args_tail(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
+static packcr_thunk_chunk_t *packcr_evaluate_rule_args_tail(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
+static packcr_thunk_chunk_t *packcr_evaluate_rule_f_any_kwrest(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
+static packcr_thunk_chunk_t *packcr_evaluate_rule_f_kwrest(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
+static packcr_thunk_chunk_t *packcr_evaluate_rule_opt_f_block_arg(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
+static packcr_thunk_chunk_t *packcr_evaluate_rule_f_rest_arg(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
 static packcr_thunk_chunk_t *packcr_evaluate_rule_f_arg(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
 static packcr_thunk_chunk_t *packcr_evaluate_rule_f_arg_item(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
 static packcr_thunk_chunk_t *packcr_evaluate_rule_f_arg_asgn(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits);
@@ -6321,7 +6626,7 @@ static packcr_thunk_chunk_t *packcr_evaluate_rule_f_args(packcr_context_t *ctx, 
     chunk->pos_loc = ctx->position_offset_loc;
     PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_EVALUATE, "f_args", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->buffer.len - chunk->pos));
     ctx->level++;
-    packcr_value_table__resize(ctx->auxil, &chunk->values, 1);
+    packcr_value_table__resize(ctx->auxil, &chunk->values, 5);
     packcr_capture_table__resize(ctx->auxil, &chunk->capts, 0);
     packcr_value_table__clear(ctx->auxil, &chunk->values);
     {
@@ -6330,13 +6635,13 @@ static packcr_thunk_chunk_t *packcr_evaluate_rule_f_args(packcr_context_t *ctx, 
         const size_t n = chunk->thunks.len;
         {
             packcr_rule_set_t *l = NULL;
-            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_f_arg) == PACKCR_VOID_VALUE) {
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_args_tail) == PACKCR_VOID_VALUE) {
                 l = limits;
             }
-            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_f_arg, &chunk->thunks, &(chunk->values.buf[0]), offset, offset_loc, l)) goto L0002;
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_args_tail, &chunk->thunks, &(chunk->values.buf[0]), offset, offset_loc, l)) goto L0002;
         }
         {
-            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_args_0, 1, 0);
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_args_0, 5, 0);
             thunk->data.leaf.values.buf[0] = &(chunk->values.buf[0]);
             thunk->data.leaf.capt0.range.start = chunk->pos;
             thunk->data.leaf.capt0.range.end = ctx->position_offset;
@@ -6350,7 +6655,207 @@ static packcr_thunk_chunk_t *packcr_evaluate_rule_f_args(packcr_context_t *ctx, 
         ctx->position_offset_loc = p_loc;
         packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
         {
-            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_args_1, 1, 0);
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_f_rest_arg) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_f_rest_arg, &chunk->thunks, &(chunk->values.buf[1]), offset, offset_loc, l)) goto L0003;
+        }
+        {
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_opt_args_tail) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_opt_args_tail, &chunk->thunks, &(chunk->values.buf[2]), offset, offset_loc, l)) goto L0003;
+        }
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_args_1, 5, 0);
+            thunk->data.leaf.values.buf[1] = &(chunk->values.buf[1]);
+            thunk->data.leaf.values.buf[2] = &(chunk->values.buf[2]);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+        goto L0001;
+    L0003:;
+        ctx->position_offset = p;
+        ctx->position_offset_loc = p_loc;
+        packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        {
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_f_arg) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_f_arg, &chunk->thunks, &(chunk->values.buf[3]), offset, offset_loc, l)) goto L0004;
+        }
+        {
+            const size_t p = ctx->position_offset;
+            const packcr_location_t p_loc = ctx->position_offset_loc;
+            const size_t n = chunk->thunks.len;
+            {
+                packcr_rule_set_t *l = NULL;
+                if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_spaces) == PACKCR_VOID_VALUE) {
+                    l = limits;
+                }
+                if (!packcr_apply_rule(ctx, packcr_evaluate_rule_spaces, &chunk->thunks, NULL, offset, offset_loc, l)) goto L0005;
+            }
+            goto L0006;
+        L0005:;
+            ctx->position_offset_loc = p_loc;
+            ctx->position_offset = p;
+            packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        L0006:;
+        }
+        if (
+            packcr_refill_buffer(ctx, 1) < 1 ||
+            ctx->buffer.buf[ctx->position_offset] != ','
+        ) goto L0004;
+            packcr_location_forward(&ctx->position_offset_loc, ctx->buffer.buf + ctx->position_offset, 1);
+        ctx->position_offset++;
+        {
+            const size_t p = ctx->position_offset;
+            const packcr_location_t p_loc = ctx->position_offset_loc;
+            const size_t n = chunk->thunks.len;
+            {
+                packcr_rule_set_t *l = NULL;
+                if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_spaces) == PACKCR_VOID_VALUE) {
+                    l = limits;
+                }
+                if (!packcr_apply_rule(ctx, packcr_evaluate_rule_spaces, &chunk->thunks, NULL, offset, offset_loc, l)) goto L0007;
+            }
+            goto L0008;
+        L0007:;
+            ctx->position_offset_loc = p_loc;
+            ctx->position_offset = p;
+            packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        L0008:;
+        }
+        {
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_args_tail) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_args_tail, &chunk->thunks, &(chunk->values.buf[4]), offset, offset_loc, l)) goto L0004;
+        }
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_args_2, 5, 0);
+            thunk->data.leaf.values.buf[3] = &(chunk->values.buf[3]);
+            thunk->data.leaf.values.buf[4] = &(chunk->values.buf[4]);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+        goto L0001;
+    L0004:;
+        ctx->position_offset = p;
+        ctx->position_offset_loc = p_loc;
+        packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        {
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_f_arg) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_f_arg, &chunk->thunks, &(chunk->values.buf[3]), offset, offset_loc, l)) goto L0009;
+        }
+        {
+            const size_t p = ctx->position_offset;
+            const packcr_location_t p_loc = ctx->position_offset_loc;
+            const size_t n = chunk->thunks.len;
+            {
+                packcr_rule_set_t *l = NULL;
+                if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_spaces) == PACKCR_VOID_VALUE) {
+                    l = limits;
+                }
+                if (!packcr_apply_rule(ctx, packcr_evaluate_rule_spaces, &chunk->thunks, NULL, offset, offset_loc, l)) goto L0010;
+            }
+            goto L0011;
+        L0010:;
+            ctx->position_offset_loc = p_loc;
+            ctx->position_offset = p;
+            packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        L0011:;
+        }
+        if (
+            packcr_refill_buffer(ctx, 1) < 1 ||
+            ctx->buffer.buf[ctx->position_offset] != ','
+        ) goto L0009;
+            packcr_location_forward(&ctx->position_offset_loc, ctx->buffer.buf + ctx->position_offset, 1);
+        ctx->position_offset++;
+        {
+            const size_t p = ctx->position_offset;
+            const packcr_location_t p_loc = ctx->position_offset_loc;
+            const size_t n = chunk->thunks.len;
+            {
+                packcr_rule_set_t *l = NULL;
+                if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_spaces) == PACKCR_VOID_VALUE) {
+                    l = limits;
+                }
+                if (!packcr_apply_rule(ctx, packcr_evaluate_rule_spaces, &chunk->thunks, NULL, offset, offset_loc, l)) goto L0012;
+            }
+            goto L0013;
+        L0012:;
+            ctx->position_offset_loc = p_loc;
+            ctx->position_offset = p;
+            packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        L0013:;
+        }
+        {
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_f_rest_arg) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_f_rest_arg, &chunk->thunks, &(chunk->values.buf[1]), offset, offset_loc, l)) goto L0009;
+        }
+        {
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_opt_args_tail) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_opt_args_tail, &chunk->thunks, &(chunk->values.buf[2]), offset, offset_loc, l)) goto L0009;
+        }
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_args_3, 5, 0);
+            thunk->data.leaf.values.buf[3] = &(chunk->values.buf[3]);
+            thunk->data.leaf.values.buf[1] = &(chunk->values.buf[1]);
+            thunk->data.leaf.values.buf[2] = &(chunk->values.buf[2]);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+        goto L0001;
+    L0009:;
+        ctx->position_offset = p;
+        ctx->position_offset_loc = p_loc;
+        packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        {
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_f_arg) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_f_arg, &chunk->thunks, &(chunk->values.buf[3]), offset, offset_loc, l)) goto L0014;
+        }
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_args_4, 5, 0);
+            thunk->data.leaf.values.buf[3] = &(chunk->values.buf[3]);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+        goto L0001;
+    L0014:;
+        ctx->position_offset = p;
+        ctx->position_offset_loc = p_loc;
+        packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_args_5, 5, 0);
             thunk->data.leaf.capt0.range.start = chunk->pos;
             thunk->data.leaf.capt0.range.end = ctx->position_offset;
             thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
@@ -6362,6 +6867,427 @@ static packcr_thunk_chunk_t *packcr_evaluate_rule_f_args(packcr_context_t *ctx, 
     ctx->level--;
     PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_MATCH, "f_args", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->position_offset - chunk->pos));
     return chunk;
+}
+
+static packcr_thunk_chunk_t *packcr_evaluate_rule_opt_args_tail(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits) {
+    packcr_thunk_chunk_t *const chunk = packcr_thunk_chunk__create(ctx);
+    chunk->pos = ctx->position_offset;
+    chunk->pos_loc = ctx->position_offset_loc;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_EVALUATE, "opt_args_tail", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->buffer.len - chunk->pos));
+    ctx->level++;
+    packcr_value_table__resize(ctx->auxil, &chunk->values, 1);
+    packcr_capture_table__resize(ctx->auxil, &chunk->capts, 0);
+    packcr_value_table__clear(ctx->auxil, &chunk->values);
+    {
+        const size_t p = ctx->position_offset;
+        const packcr_location_t p_loc = ctx->position_offset_loc;
+        const size_t n = chunk->thunks.len;
+        {
+            const size_t p = ctx->position_offset;
+            const packcr_location_t p_loc = ctx->position_offset_loc;
+            const size_t n = chunk->thunks.len;
+            {
+                packcr_rule_set_t *l = NULL;
+                if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_spaces) == PACKCR_VOID_VALUE) {
+                    l = limits;
+                }
+                if (!packcr_apply_rule(ctx, packcr_evaluate_rule_spaces, &chunk->thunks, NULL, offset, offset_loc, l)) goto L0003;
+            }
+            goto L0004;
+        L0003:;
+            ctx->position_offset_loc = p_loc;
+            ctx->position_offset = p;
+            packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        L0004:;
+        }
+        if (
+            packcr_refill_buffer(ctx, 1) < 1 ||
+            ctx->buffer.buf[ctx->position_offset] != ','
+        ) goto L0002;
+            packcr_location_forward(&ctx->position_offset_loc, ctx->buffer.buf + ctx->position_offset, 1);
+        ctx->position_offset++;
+        {
+            const size_t p = ctx->position_offset;
+            const packcr_location_t p_loc = ctx->position_offset_loc;
+            const size_t n = chunk->thunks.len;
+            {
+                packcr_rule_set_t *l = NULL;
+                if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_spaces) == PACKCR_VOID_VALUE) {
+                    l = limits;
+                }
+                if (!packcr_apply_rule(ctx, packcr_evaluate_rule_spaces, &chunk->thunks, NULL, offset, offset_loc, l)) goto L0005;
+            }
+            goto L0006;
+        L0005:;
+            ctx->position_offset_loc = p_loc;
+            ctx->position_offset = p;
+            packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        L0006:;
+        }
+        {
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_args_tail) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_args_tail, &chunk->thunks, &(chunk->values.buf[0]), offset, offset_loc, l)) goto L0002;
+        }
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_opt_args_tail_0, 1, 0);
+            thunk->data.leaf.values.buf[0] = &(chunk->values.buf[0]);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+        goto L0001;
+    L0002:;
+        ctx->position_offset = p;
+        ctx->position_offset_loc = p_loc;
+        packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_opt_args_tail_1, 1, 0);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+    L0001:;
+    }
+    ctx->level--;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_MATCH, "opt_args_tail", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->position_offset - chunk->pos));
+    return chunk;
+}
+
+static packcr_thunk_chunk_t *packcr_evaluate_rule_args_tail(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits) {
+    packcr_thunk_chunk_t *const chunk = packcr_thunk_chunk__create(ctx);
+    chunk->pos = ctx->position_offset;
+    chunk->pos_loc = ctx->position_offset_loc;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_EVALUATE, "args_tail", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->buffer.len - chunk->pos));
+    ctx->level++;
+    packcr_value_table__resize(ctx->auxil, &chunk->values, 1);
+    packcr_capture_table__resize(ctx->auxil, &chunk->capts, 0);
+    packcr_value_table__clear(ctx->auxil, &chunk->values);
+    {
+        packcr_rule_set_t *l = NULL;
+        if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_f_any_kwrest) == PACKCR_VOID_VALUE) {
+            l = limits;
+        }
+        if (!packcr_apply_rule(ctx, packcr_evaluate_rule_f_any_kwrest, &chunk->thunks, &(chunk->values.buf[0]), offset, offset_loc, l)) goto L0000;
+    }
+    {
+        packcr_rule_set_t *l = NULL;
+        if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_opt_f_block_arg) == PACKCR_VOID_VALUE) {
+            l = limits;
+        }
+        if (!packcr_apply_rule(ctx, packcr_evaluate_rule_opt_f_block_arg, &chunk->thunks, NULL, offset, offset_loc, l)) goto L0000;
+    }
+    {
+        packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_args_tail_0, 1, 0);
+        thunk->data.leaf.values.buf[0] = &(chunk->values.buf[0]);
+        thunk->data.leaf.capt0.range.start = chunk->pos;
+        thunk->data.leaf.capt0.range.end = ctx->position_offset;
+        thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+        thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+        packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+    }
+    ctx->level--;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_MATCH, "args_tail", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->position_offset - chunk->pos));
+    return chunk;
+L0000:;
+    ctx->level--;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_NOMATCH, "args_tail", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->position_offset - chunk->pos));
+    packcr_thunk_chunk__destroy(ctx, chunk);
+    return NULL;
+}
+
+static packcr_thunk_chunk_t *packcr_evaluate_rule_f_any_kwrest(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits) {
+    packcr_thunk_chunk_t *const chunk = packcr_thunk_chunk__create(ctx);
+    chunk->pos = ctx->position_offset;
+    chunk->pos_loc = ctx->position_offset_loc;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_EVALUATE, "f_any_kwrest", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->buffer.len - chunk->pos));
+    ctx->level++;
+    packcr_value_table__resize(ctx->auxil, &chunk->values, 1);
+    packcr_capture_table__resize(ctx->auxil, &chunk->capts, 0);
+    packcr_value_table__clear(ctx->auxil, &chunk->values);
+    {
+        const size_t p = ctx->position_offset;
+        const packcr_location_t p_loc = ctx->position_offset_loc;
+        const size_t n = chunk->thunks.len;
+        {
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_f_kwrest) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_f_kwrest, &chunk->thunks, &(chunk->values.buf[0]), offset, offset_loc, l)) goto L0002;
+        }
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_any_kwrest_0, 1, 0);
+            thunk->data.leaf.values.buf[0] = &(chunk->values.buf[0]);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+        goto L0001;
+    L0002:;
+        ctx->position_offset = p;
+        ctx->position_offset_loc = p_loc;
+        packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        if (
+            packcr_refill_buffer(ctx, 2) < 2 ||
+            (ctx->buffer.buf + ctx->position_offset)[0] != '*' ||
+            (ctx->buffer.buf + ctx->position_offset)[1] != '*'
+        ) goto L0003;
+        packcr_location_forward(&ctx->position_offset_loc, ctx->buffer.buf + ctx->position_offset, 2);
+        ctx->position_offset += 2;
+        {
+            const size_t p = ctx->position_offset;
+            const packcr_location_t p_loc = ctx->position_offset_loc;
+            const size_t n = chunk->thunks.len;
+            {
+                packcr_rule_set_t *l = NULL;
+                if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_spaces) == PACKCR_VOID_VALUE) {
+                    l = limits;
+                }
+                if (!packcr_apply_rule(ctx, packcr_evaluate_rule_spaces, &chunk->thunks, NULL, offset, offset_loc, l)) goto L0004;
+            }
+            goto L0005;
+        L0004:;
+            ctx->position_offset_loc = p_loc;
+            ctx->position_offset = p;
+            packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        L0005:;
+        }
+        if (
+            packcr_refill_buffer(ctx, 3) < 3 ||
+            (ctx->buffer.buf + ctx->position_offset)[0] != 'n' ||
+            (ctx->buffer.buf + ctx->position_offset)[1] != 'i' ||
+            (ctx->buffer.buf + ctx->position_offset)[2] != 'l'
+        ) goto L0003;
+        packcr_location_forward(&ctx->position_offset_loc, ctx->buffer.buf + ctx->position_offset, 3);
+        ctx->position_offset += 3;
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_any_kwrest_1, 1, 0);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+        goto L0001;
+    L0003:;
+        ctx->position_offset = p;
+        ctx->position_offset_loc = p_loc;
+        packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        goto L0000;
+    L0001:;
+    }
+    ctx->level--;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_MATCH, "f_any_kwrest", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->position_offset - chunk->pos));
+    return chunk;
+L0000:;
+    ctx->level--;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_NOMATCH, "f_any_kwrest", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->position_offset - chunk->pos));
+    packcr_thunk_chunk__destroy(ctx, chunk);
+    return NULL;
+}
+
+static packcr_thunk_chunk_t *packcr_evaluate_rule_f_kwrest(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits) {
+    packcr_thunk_chunk_t *const chunk = packcr_thunk_chunk__create(ctx);
+    chunk->pos = ctx->position_offset;
+    chunk->pos_loc = ctx->position_offset_loc;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_EVALUATE, "f_kwrest", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->buffer.len - chunk->pos));
+    ctx->level++;
+    packcr_value_table__resize(ctx->auxil, &chunk->values, 1);
+    packcr_capture_table__resize(ctx->auxil, &chunk->capts, 0);
+    packcr_value_table__clear(ctx->auxil, &chunk->values);
+    {
+        const size_t p = ctx->position_offset;
+        const packcr_location_t p_loc = ctx->position_offset_loc;
+        const size_t n = chunk->thunks.len;
+        if (
+            packcr_refill_buffer(ctx, 2) < 2 ||
+            (ctx->buffer.buf + ctx->position_offset)[0] != '*' ||
+            (ctx->buffer.buf + ctx->position_offset)[1] != '*'
+        ) goto L0002;
+        packcr_location_forward(&ctx->position_offset_loc, ctx->buffer.buf + ctx->position_offset, 2);
+        ctx->position_offset += 2;
+        {
+            const size_t p = ctx->position_offset;
+            const packcr_location_t p_loc = ctx->position_offset_loc;
+            const size_t n = chunk->thunks.len;
+            {
+                packcr_rule_set_t *l = NULL;
+                if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_spaces) == PACKCR_VOID_VALUE) {
+                    l = limits;
+                }
+                if (!packcr_apply_rule(ctx, packcr_evaluate_rule_spaces, &chunk->thunks, NULL, offset, offset_loc, l)) goto L0003;
+            }
+            goto L0004;
+        L0003:;
+            ctx->position_offset_loc = p_loc;
+            ctx->position_offset = p;
+            packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        L0004:;
+        }
+        {
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_tIDENTIFIER) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_tIDENTIFIER, &chunk->thunks, &(chunk->values.buf[0]), offset, offset_loc, l)) goto L0002;
+        }
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_kwrest_0, 1, 0);
+            thunk->data.leaf.values.buf[0] = &(chunk->values.buf[0]);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+        goto L0001;
+    L0002:;
+        ctx->position_offset = p;
+        ctx->position_offset_loc = p_loc;
+        packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        if (
+            packcr_refill_buffer(ctx, 2) < 2 ||
+            (ctx->buffer.buf + ctx->position_offset)[0] != '*' ||
+            (ctx->buffer.buf + ctx->position_offset)[1] != '*'
+        ) goto L0005;
+        packcr_location_forward(&ctx->position_offset_loc, ctx->buffer.buf + ctx->position_offset, 2);
+        ctx->position_offset += 2;
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_kwrest_1, 1, 0);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+        goto L0001;
+    L0005:;
+        ctx->position_offset = p;
+        ctx->position_offset_loc = p_loc;
+        packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        goto L0000;
+    L0001:;
+    }
+    ctx->level--;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_MATCH, "f_kwrest", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->position_offset - chunk->pos));
+    return chunk;
+L0000:;
+    ctx->level--;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_NOMATCH, "f_kwrest", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->position_offset - chunk->pos));
+    packcr_thunk_chunk__destroy(ctx, chunk);
+    return NULL;
+}
+
+static packcr_thunk_chunk_t *packcr_evaluate_rule_opt_f_block_arg(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits) {
+    packcr_thunk_chunk_t *const chunk = packcr_thunk_chunk__create(ctx);
+    chunk->pos = ctx->position_offset;
+    chunk->pos_loc = ctx->position_offset_loc;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_EVALUATE, "opt_f_block_arg", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->buffer.len - chunk->pos));
+    ctx->level++;
+    packcr_value_table__resize(ctx->auxil, &chunk->values, 0);
+    packcr_capture_table__resize(ctx->auxil, &chunk->capts, 0);
+    ctx->level--;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_MATCH, "opt_f_block_arg", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->position_offset - chunk->pos));
+    return chunk;
+}
+
+static packcr_thunk_chunk_t *packcr_evaluate_rule_f_rest_arg(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits) {
+    packcr_thunk_chunk_t *const chunk = packcr_thunk_chunk__create(ctx);
+    chunk->pos = ctx->position_offset;
+    chunk->pos_loc = ctx->position_offset_loc;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_EVALUATE, "f_rest_arg", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->buffer.len - chunk->pos));
+    ctx->level++;
+    packcr_value_table__resize(ctx->auxil, &chunk->values, 1);
+    packcr_capture_table__resize(ctx->auxil, &chunk->capts, 0);
+    packcr_value_table__clear(ctx->auxil, &chunk->values);
+    {
+        const size_t p = ctx->position_offset;
+        const packcr_location_t p_loc = ctx->position_offset_loc;
+        const size_t n = chunk->thunks.len;
+        if (
+            packcr_refill_buffer(ctx, 1) < 1 ||
+            ctx->buffer.buf[ctx->position_offset] != '*'
+        ) goto L0002;
+            packcr_location_forward(&ctx->position_offset_loc, ctx->buffer.buf + ctx->position_offset, 1);
+        ctx->position_offset++;
+        {
+            const size_t p = ctx->position_offset;
+            const packcr_location_t p_loc = ctx->position_offset_loc;
+            const size_t n = chunk->thunks.len;
+            {
+                packcr_rule_set_t *l = NULL;
+                if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_spaces) == PACKCR_VOID_VALUE) {
+                    l = limits;
+                }
+                if (!packcr_apply_rule(ctx, packcr_evaluate_rule_spaces, &chunk->thunks, NULL, offset, offset_loc, l)) goto L0003;
+            }
+            goto L0004;
+        L0003:;
+            ctx->position_offset_loc = p_loc;
+            ctx->position_offset = p;
+            packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        L0004:;
+        }
+        {
+            packcr_rule_set_t *l = NULL;
+            if (limits && ctx->position_offset == offset && packcr_rule_set__index(ctx->auxil, limits, packcr_evaluate_rule_tIDENTIFIER) == PACKCR_VOID_VALUE) {
+                l = limits;
+            }
+            if (!packcr_apply_rule(ctx, packcr_evaluate_rule_tIDENTIFIER, &chunk->thunks, &(chunk->values.buf[0]), offset, offset_loc, l)) goto L0002;
+        }
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_rest_arg_0, 1, 0);
+            thunk->data.leaf.values.buf[0] = &(chunk->values.buf[0]);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+        goto L0001;
+    L0002:;
+        ctx->position_offset = p;
+        ctx->position_offset_loc = p_loc;
+        packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        if (
+            packcr_refill_buffer(ctx, 1) < 1 ||
+            ctx->buffer.buf[ctx->position_offset] != '*'
+        ) goto L0005;
+            packcr_location_forward(&ctx->position_offset_loc, ctx->buffer.buf + ctx->position_offset, 1);
+        ctx->position_offset++;
+        {
+            packcr_thunk_t *const thunk = packcr_thunk__create_leaf(ctx->auxil, packcr_action_f_rest_arg_1, 1, 0);
+            thunk->data.leaf.capt0.range.start = chunk->pos;
+            thunk->data.leaf.capt0.range.end = ctx->position_offset;
+            thunk->data.leaf.capt0.range.start_loc = chunk->pos_loc;
+            thunk->data.leaf.capt0.range.end_loc = ctx->position_offset_loc;
+            packcr_thunk_array__add(ctx->auxil, &chunk->thunks, thunk);
+        }
+        goto L0001;
+    L0005:;
+        ctx->position_offset = p;
+        ctx->position_offset_loc = p_loc;
+        packcr_thunk_array__revert(ctx->auxil, &chunk->thunks, n);
+        goto L0000;
+    L0001:;
+    }
+    ctx->level--;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_MATCH, "f_rest_arg", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->position_offset - chunk->pos));
+    return chunk;
+L0000:;
+    ctx->level--;
+    PACKCR_DEBUG(ctx->auxil, PACKCR_DBG_NOMATCH, "f_rest_arg", ctx->level, chunk->pos, (ctx->buffer.buf + chunk->pos), (ctx->position_offset - chunk->pos));
+    packcr_thunk_chunk__destroy(ctx, chunk);
+    return NULL;
 }
 
 static packcr_thunk_chunk_t *packcr_evaluate_rule_f_arg(packcr_context_t *ctx, size_t offset, packcr_location_t offset_loc, packcr_rule_set_t *limits) {

@@ -77,6 +77,7 @@ class TinyRubyParser
     def set_defun_body(n, args, body, beg_pos, end_pos)
       args.var_table_pass(body)
       n.nd_defn = ScopeNode.new(args.var_table || [], body, args, beg_pos, end_pos)
+      n.nd_defn.nd_loc.lineno = end_pos.lineno
       args.var_table = nil
       n.nd_loc.beg_pos = beg_pos
       n.nd_loc.end_pos = end_pos
@@ -134,6 +135,14 @@ class TinyRubyParser
       puts "#{indent}@ #{label} (id: #{@node_id}, line: #{@nd_loc.lineno + 1}, location: (#{@nd_loc.beg_pos.lineno + 1},#{@nd_loc.beg_pos.column})-(#{@nd_loc.end_pos.lineno + 1},#{@nd_loc.end_pos.column}))#{newline ? "*" : ""}"
     end
 
+    def dump_id(id)
+      if id
+        id.inspect
+      else
+        "(null)"
+      end
+    end
+
     def to_block
       block_node = BlockNode.new(self, nd_loc.beg_pos, nd_loc.end_pos)
       block_node.var_table = self.var_table
@@ -157,6 +166,11 @@ class TinyRubyParser
     def var_table_add(sym)
       @var_table ||= []
       @var_table << sym
+    end
+
+    def var_table_unshift(sym)
+      @var_table ||= []
+      @var_table.unshift(sym)
     end
 
     def var_table_pass(src)
@@ -361,7 +375,7 @@ class TinyRubyParser
   end
 
   class ArgsInfo
-    attr_accessor :pre_args_num
+    attr_accessor :pre_args_num, :rest_arg, :kw_rest_arg, :no_kwarg
 
     def initialize
       @pre_args_num = 0
@@ -381,21 +395,21 @@ class TinyRubyParser
 
     def debug_dump(indent)
       super
-      puts "#{indent}+- nd_ainfo->pre_args_num: #{@u3.pre_args_num}"
+      puts "#{indent}+- nd_ainfo->pre_args_num: #{nd_ainfo.pre_args_num}"
       puts "#{indent}+- nd_ainfo->pre_init:"
       puts "#{indent}|   (null node)"
       puts "#{indent}+- nd_ainfo->post_args_num: 0"
       puts "#{indent}+- nd_ainfo->post_init:"
       puts "#{indent}|   (null node)"
       puts "#{indent}+- nd_ainfo->first_post_arg: (null)"
-      puts "#{indent}+- nd_ainfo->rest_arg: (null)"
+      puts "#{indent}+- nd_ainfo->rest_arg: #{dump_id(nd_ainfo.rest_arg)}"
       puts "#{indent}+- nd_ainfo->block_arg: (null)"
       puts "#{indent}+- nd_ainfo->opt_args:"
       puts "#{indent}|   (null node)"
       puts "#{indent}+- nd_ainfo->kw_args:"
       puts "#{indent}|   (null node)"
       puts "#{indent}+- nd_ainfo->kw_rest_arg:"
-      puts "#{indent}    (null node)"
+      Node.debug_dump(nd_ainfo.kw_rest_arg, indent + "    ")
     end
   end
 
@@ -413,6 +427,17 @@ class TinyRubyParser
       puts "#{indent}+- nd_vid: #{nd_vid.inspect}"
       puts "#{indent}+- nd_value:"
       Node.debug_dump(nd_value, indent + "    ")
+    end
+  end
+
+  class DvarNode < Node
+    def label
+      "NODE_DVAR"
+    end
+
+    def debug_dump(indent)
+      super
+      puts "#{indent}+- nd_vid: #{nd_vid.inspect}"
     end
   end
 
@@ -1363,7 +1388,8 @@ class TinyRubyParser
     __2el = @buffer_start_position_loc + __packcr_in.capts[1].end_loc
     __2c = __packcr_in.capts[1]
     ____ = f_paren_args
-    if __2 != ""
+# for compatiblility
+    if __2 != "" && !____.nd_ainfo.rest_arg
       ____.nd_head = BeginNode.new(nil, nil, nil, __1sl, __1sl)
     end
 
@@ -1415,7 +1441,82 @@ class TinyRubyParser
 
   def action_f_args_0(__packcr_in, __packcr_vars, __packcr_index)
     ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
-    f_arg = (__packcr_in.value_refs[0]  ||= Value.new).value
+    _out = (__packcr_in.value_refs[0]  ||= Value.new).value
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    ____ = _out
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_f_args_1(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    f_rest_arg = (__packcr_in.value_refs[1]  ||= Value.new).value
+    opt_args_tail = (__packcr_in.value_refs[2]  ||= Value.new).value
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    ____ = opt_args_tail
+    ____.nd_loc.beg_pos = __0c.start_loc
+    ____.nd_loc.end_pos = __0c.end_loc
+    ____.nd_ainfo.rest_arg = f_rest_arg
+    ____.var_table_unshift(f_rest_arg)
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_f_args_2(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    f_arg = (__packcr_in.value_refs[3]  ||= Value.new).value
+    args_tail = (__packcr_in.value_refs[4]  ||= Value.new).value
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    ____ = args_tail
+    ____.nd_loc.beg_pos = __0c.start_loc
+    ____.nd_loc.end_pos = __0c.end_loc
+    ____.nd_ainfo.pre_args_num = f_arg.var_table.size
+    f_arg.var_table_pass(____)
+    ____.var_table_pass(f_arg)
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_f_args_3(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    f_arg = (__packcr_in.value_refs[3]  ||= Value.new).value
+    f_rest_arg = (__packcr_in.value_refs[1]  ||= Value.new).value
+    opt_args_tail = (__packcr_in.value_refs[2]  ||= Value.new).value
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    ____ = opt_args_tail
+    ____.nd_loc.beg_pos = __0c.start_loc
+    ____.nd_loc.end_pos = __0c.end_loc
+    ____.nd_ainfo.pre_args_num = f_arg.var_table.size
+    ____.nd_ainfo.rest_arg = f_rest_arg
+    ____.var_table_pass(f_arg)
+    ____.var_table_add(f_rest_arg)
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_f_args_4(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    f_arg = (__packcr_in.value_refs[3]  ||= Value.new).value
     __0 = __packcr_in.capt0.capture_string(@buffer)
     __0s = @buffer_start_position + __packcr_in.capt0.range_start
     __0e = @buffer_start_position + __packcr_in.capt0.range_end
@@ -1423,14 +1524,16 @@ class TinyRubyParser
     __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
     __0c = __packcr_in.capt0
     args = ArgsInfo.new
-    args.pre_args_num = f_arg.var_table.size
     ____ = ArgsNode.new(nil, nil, args, __0sl, __0el)
+    ____.nd_loc.beg_pos = __0c.start_loc
+    ____.nd_loc.end_pos = __0c.end_loc
+    ____.nd_ainfo.pre_args_num = f_arg.var_table.size
     ____.var_table_pass(f_arg)
 
     __packcr_vars[__packcr_index].value = ____ if __packcr_vars
   end
 
-  def action_f_args_1(__packcr_in, __packcr_vars, __packcr_index)
+  def action_f_args_5(__packcr_in, __packcr_vars, __packcr_index)
     ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
     __0 = __packcr_in.capt0.capture_string(@buffer)
     __0s = @buffer_start_position + __packcr_in.capt0.range_start
@@ -1440,6 +1543,136 @@ class TinyRubyParser
     __0c = __packcr_in.capt0
     args = ArgsInfo.new
     ____ = ArgsNode.new(nil, nil, args, __0sl, __0el)
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_opt_args_tail_0(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    _out = (__packcr_in.value_refs[0]  ||= Value.new).value
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    ____ = _out
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_opt_args_tail_1(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    args = ArgsInfo.new
+    ____ = ArgsNode.new(nil, nil, args, __0sl, __0el)
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_args_tail_0(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    f_any_kwrest = (__packcr_in.value_refs[0]  ||= Value.new).value
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    args = ArgsInfo.new
+    ____ = ArgsNode.new(nil, nil, args, __0sl, __0el)
+    if f_any_kwrest == :nil
+      args.no_kwarg = true
+    else
+      args.kw_rest_arg = DvarNode.new(f_any_kwrest, nil, nil, __0sl, __0el)
+      ____.var_table_add(f_any_kwrest)
+    end
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_f_any_kwrest_0(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    _out = (__packcr_in.value_refs[0]  ||= Value.new).value
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    ____ = _out
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_f_any_kwrest_1(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    ____ = :nil
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_f_kwrest_0(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    _out = (__packcr_in.value_refs[0]  ||= Value.new).value
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    ____ = _out
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_f_kwrest_1(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    ____ = :"**"
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_f_rest_arg_0(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    _out = (__packcr_in.value_refs[0]  ||= Value.new).value
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    ____ = _out
+
+    __packcr_vars[__packcr_index].value = ____ if __packcr_vars
+  end
+
+  def action_f_rest_arg_1(__packcr_in, __packcr_vars, __packcr_index)
+    ____ = (__packcr_vars[__packcr_index] ||= Value.new).value if __packcr_vars
+    __0 = __packcr_in.capt0.capture_string(@buffer)
+    __0s = @buffer_start_position + __packcr_in.capt0.range_start
+    __0e = @buffer_start_position + __packcr_in.capt0.range_end
+    __0sl = @buffer_start_position_loc + __packcr_in.capt0.start_loc
+    __0el = @buffer_start_position_loc + __packcr_in.capt0.end_loc
+    __0c = __packcr_in.capt0
+    ____ = :"*"
 
     __packcr_vars[__packcr_index].value = ____ if __packcr_vars
   end
@@ -5280,12 +5513,12 @@ class TinyRubyParser
       p_loc2 = @position_offset_loc
       n2 = answer.thunks.length
       catch(2) do
-        if limits && @position_offset == offset && !limits[:evaluate_rule_f_arg]
-          if !apply_rule(:evaluate_rule_f_arg, answer.thunks, answer.values, 0, offset, offset_loc, limits: limits)
+        if limits && @position_offset == offset && !limits[:evaluate_rule_args_tail]
+          if !apply_rule(:evaluate_rule_args_tail, answer.thunks, answer.values, 0, offset, offset_loc, limits: limits)
             throw(2)
           end
         else
-          if !apply_rule(:evaluate_rule_f_arg, answer.thunks, answer.values, 0, offset, offset_loc)
+          if !apply_rule(:evaluate_rule_args_tail, answer.thunks, answer.values, 0, offset, offset_loc)
             throw(2)
           end
         end
@@ -5306,9 +5539,245 @@ class TinyRubyParser
       @position_offset_loc = p_loc2
       answer.thunks[n2..-1] = []
       catch(3) do
+        if limits && @position_offset == offset && !limits[:evaluate_rule_f_rest_arg]
+          if !apply_rule(:evaluate_rule_f_rest_arg, answer.thunks, answer.values, 1, offset, offset_loc, limits: limits)
+            throw(3)
+          end
+        else
+          if !apply_rule(:evaluate_rule_f_rest_arg, answer.thunks, answer.values, 1, offset, offset_loc)
+            throw(3)
+          end
+        end
+        if limits && @position_offset == offset && !limits[:evaluate_rule_opt_args_tail]
+          if !apply_rule(:evaluate_rule_opt_args_tail, answer.thunks, answer.values, 2, offset, offset_loc, limits: limits)
+            throw(3)
+          end
+        else
+          if !apply_rule(:evaluate_rule_opt_args_tail, answer.thunks, answer.values, 2, offset, offset_loc)
+            throw(3)
+          end
+        end
         answer.thunks.push(
           ThunkLeaf.new(
             :action_f_args_1,
+            Capture.new(
+              answer.pos, @position_offset,
+              answer.pos_loc, @position_offset_loc,
+            ),
+            answer.values.slice(1, 2),
+            {},
+          )
+        )
+        throw(1)
+      end
+      @position_offset = pos2
+      @position_offset_loc = p_loc2
+      answer.thunks[n2..-1] = []
+      catch(4) do
+        if limits && @position_offset == offset && !limits[:evaluate_rule_f_arg]
+          if !apply_rule(:evaluate_rule_f_arg, answer.thunks, answer.values, 3, offset, offset_loc, limits: limits)
+            throw(4)
+          end
+        else
+          if !apply_rule(:evaluate_rule_f_arg, answer.thunks, answer.values, 3, offset, offset_loc)
+            throw(4)
+          end
+        end
+        pos4 = @position_offset
+        p_loc4 = @position_offset_loc
+        n4 = answer.thunks.length
+        catch(6) do
+          catch(5) do
+            if limits && @position_offset == offset && !limits[:evaluate_rule_spaces]
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc, limits: limits)
+                throw(5)
+              end
+            else
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc)
+                throw(5)
+              end
+            end
+            throw(6)
+          end
+          @position_offset_loc = p_loc4
+          @position_offset = pos4
+          answer.thunks[n4..-1] = []
+        end
+        if (
+          refill_buffer(1) < 1 ||
+          @buffer[@position_offset] != ","
+        )
+          throw(4)
+        end
+        @position_offset_loc = @position_offset_loc.forward(@buffer, @position_offset, 1)
+        @position_offset += 1
+        pos4 = @position_offset
+        p_loc4 = @position_offset_loc
+        n4 = answer.thunks.length
+        catch(8) do
+          catch(7) do
+            if limits && @position_offset == offset && !limits[:evaluate_rule_spaces]
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc, limits: limits)
+                throw(7)
+              end
+            else
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc)
+                throw(7)
+              end
+            end
+            throw(8)
+          end
+          @position_offset_loc = p_loc4
+          @position_offset = pos4
+          answer.thunks[n4..-1] = []
+        end
+        if limits && @position_offset == offset && !limits[:evaluate_rule_args_tail]
+          if !apply_rule(:evaluate_rule_args_tail, answer.thunks, answer.values, 4, offset, offset_loc, limits: limits)
+            throw(4)
+          end
+        else
+          if !apply_rule(:evaluate_rule_args_tail, answer.thunks, answer.values, 4, offset, offset_loc)
+            throw(4)
+          end
+        end
+        answer.thunks.push(
+          ThunkLeaf.new(
+            :action_f_args_2,
+            Capture.new(
+              answer.pos, @position_offset,
+              answer.pos_loc, @position_offset_loc,
+            ),
+            answer.values.slice(3, 4),
+            {},
+          )
+        )
+        throw(1)
+      end
+      @position_offset = pos2
+      @position_offset_loc = p_loc2
+      answer.thunks[n2..-1] = []
+      catch(9) do
+        if limits && @position_offset == offset && !limits[:evaluate_rule_f_arg]
+          if !apply_rule(:evaluate_rule_f_arg, answer.thunks, answer.values, 3, offset, offset_loc, limits: limits)
+            throw(9)
+          end
+        else
+          if !apply_rule(:evaluate_rule_f_arg, answer.thunks, answer.values, 3, offset, offset_loc)
+            throw(9)
+          end
+        end
+        pos4 = @position_offset
+        p_loc4 = @position_offset_loc
+        n4 = answer.thunks.length
+        catch(11) do
+          catch(10) do
+            if limits && @position_offset == offset && !limits[:evaluate_rule_spaces]
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc, limits: limits)
+                throw(10)
+              end
+            else
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc)
+                throw(10)
+              end
+            end
+            throw(11)
+          end
+          @position_offset_loc = p_loc4
+          @position_offset = pos4
+          answer.thunks[n4..-1] = []
+        end
+        if (
+          refill_buffer(1) < 1 ||
+          @buffer[@position_offset] != ","
+        )
+          throw(9)
+        end
+        @position_offset_loc = @position_offset_loc.forward(@buffer, @position_offset, 1)
+        @position_offset += 1
+        pos4 = @position_offset
+        p_loc4 = @position_offset_loc
+        n4 = answer.thunks.length
+        catch(13) do
+          catch(12) do
+            if limits && @position_offset == offset && !limits[:evaluate_rule_spaces]
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc, limits: limits)
+                throw(12)
+              end
+            else
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc)
+                throw(12)
+              end
+            end
+            throw(13)
+          end
+          @position_offset_loc = p_loc4
+          @position_offset = pos4
+          answer.thunks[n4..-1] = []
+        end
+        if limits && @position_offset == offset && !limits[:evaluate_rule_f_rest_arg]
+          if !apply_rule(:evaluate_rule_f_rest_arg, answer.thunks, answer.values, 1, offset, offset_loc, limits: limits)
+            throw(9)
+          end
+        else
+          if !apply_rule(:evaluate_rule_f_rest_arg, answer.thunks, answer.values, 1, offset, offset_loc)
+            throw(9)
+          end
+        end
+        if limits && @position_offset == offset && !limits[:evaluate_rule_opt_args_tail]
+          if !apply_rule(:evaluate_rule_opt_args_tail, answer.thunks, answer.values, 2, offset, offset_loc, limits: limits)
+            throw(9)
+          end
+        else
+          if !apply_rule(:evaluate_rule_opt_args_tail, answer.thunks, answer.values, 2, offset, offset_loc)
+            throw(9)
+          end
+        end
+        answer.thunks.push(
+          ThunkLeaf.new(
+            :action_f_args_3,
+            Capture.new(
+              answer.pos, @position_offset,
+              answer.pos_loc, @position_offset_loc,
+            ),
+            answer.values.slice(3, 1, 2),
+            {},
+          )
+        )
+        throw(1)
+      end
+      @position_offset = pos2
+      @position_offset_loc = p_loc2
+      answer.thunks[n2..-1] = []
+      catch(14) do
+        if limits && @position_offset == offset && !limits[:evaluate_rule_f_arg]
+          if !apply_rule(:evaluate_rule_f_arg, answer.thunks, answer.values, 3, offset, offset_loc, limits: limits)
+            throw(14)
+          end
+        else
+          if !apply_rule(:evaluate_rule_f_arg, answer.thunks, answer.values, 3, offset, offset_loc)
+            throw(14)
+          end
+        end
+        answer.thunks.push(
+          ThunkLeaf.new(
+            :action_f_args_4,
+            Capture.new(
+              answer.pos, @position_offset,
+              answer.pos_loc, @position_offset_loc,
+            ),
+            answer.values.slice(3),
+            {},
+          )
+        )
+        throw(1)
+      end
+      @position_offset = pos2
+      @position_offset_loc = p_loc2
+      answer.thunks[n2..-1] = []
+      catch(15) do
+        answer.thunks.push(
+          ThunkLeaf.new(
+            :action_f_args_5,
             Capture.new(
               answer.pos, @position_offset,
               answer.pos_loc, @position_offset_loc,
@@ -5322,6 +5791,479 @@ class TinyRubyParser
     @level -= 1
     debug { warn "#{ "  " * @level}MATCH   f_args #{answer.pos} #{@buffer[answer.pos...@position_offset].inspect}" }
     return answer
+  end
+
+  def evaluate_rule_opt_args_tail(offset, offset_loc, limits: nil)
+    answer = ThunkChunk.new
+    answer.pos = @position_offset
+    answer.pos_loc = @position_offset_loc
+    debug { warn "#{ "  " * @level}EVAL    opt_args_tail #{answer.pos} #{@buffer[answer.pos..-1].inspect}" }
+    @level += 1
+    answer.resize_captures(0)
+    answer.values = {}
+    catch(1) do
+      pos2 = @position_offset
+      p_loc2 = @position_offset_loc
+      n2 = answer.thunks.length
+      catch(2) do
+        pos4 = @position_offset
+        p_loc4 = @position_offset_loc
+        n4 = answer.thunks.length
+        catch(4) do
+          catch(3) do
+            if limits && @position_offset == offset && !limits[:evaluate_rule_spaces]
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc, limits: limits)
+                throw(3)
+              end
+            else
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc)
+                throw(3)
+              end
+            end
+            throw(4)
+          end
+          @position_offset_loc = p_loc4
+          @position_offset = pos4
+          answer.thunks[n4..-1] = []
+        end
+        if (
+          refill_buffer(1) < 1 ||
+          @buffer[@position_offset] != ","
+        )
+          throw(2)
+        end
+        @position_offset_loc = @position_offset_loc.forward(@buffer, @position_offset, 1)
+        @position_offset += 1
+        pos4 = @position_offset
+        p_loc4 = @position_offset_loc
+        n4 = answer.thunks.length
+        catch(6) do
+          catch(5) do
+            if limits && @position_offset == offset && !limits[:evaluate_rule_spaces]
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc, limits: limits)
+                throw(5)
+              end
+            else
+              if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc)
+                throw(5)
+              end
+            end
+            throw(6)
+          end
+          @position_offset_loc = p_loc4
+          @position_offset = pos4
+          answer.thunks[n4..-1] = []
+        end
+        if limits && @position_offset == offset && !limits[:evaluate_rule_args_tail]
+          if !apply_rule(:evaluate_rule_args_tail, answer.thunks, answer.values, 0, offset, offset_loc, limits: limits)
+            throw(2)
+          end
+        else
+          if !apply_rule(:evaluate_rule_args_tail, answer.thunks, answer.values, 0, offset, offset_loc)
+            throw(2)
+          end
+        end
+        answer.thunks.push(
+          ThunkLeaf.new(
+            :action_opt_args_tail_0,
+            Capture.new(
+              answer.pos, @position_offset,
+              answer.pos_loc, @position_offset_loc,
+            ),
+            answer.values.slice(0),
+            {},
+          )
+        )
+        throw(1)
+      end
+      @position_offset = pos2
+      @position_offset_loc = p_loc2
+      answer.thunks[n2..-1] = []
+      catch(7) do
+        answer.thunks.push(
+          ThunkLeaf.new(
+            :action_opt_args_tail_1,
+            Capture.new(
+              answer.pos, @position_offset,
+              answer.pos_loc, @position_offset_loc,
+            ),
+            {},
+            {},
+          )
+        )
+      end
+    end
+    @level -= 1
+    debug { warn "#{ "  " * @level}MATCH   opt_args_tail #{answer.pos} #{@buffer[answer.pos...@position_offset].inspect}" }
+    return answer
+  end
+
+  def evaluate_rule_args_tail(offset, offset_loc, limits: nil)
+    answer = ThunkChunk.new
+    answer.pos = @position_offset
+    answer.pos_loc = @position_offset_loc
+    debug { warn "#{ "  " * @level}EVAL    args_tail #{answer.pos} #{@buffer[answer.pos..-1].inspect}" }
+    @level += 1
+    answer.resize_captures(0)
+    answer.values = {}
+    catch(0) do
+      if limits && @position_offset == offset && !limits[:evaluate_rule_f_any_kwrest]
+        if !apply_rule(:evaluate_rule_f_any_kwrest, answer.thunks, answer.values, 0, offset, offset_loc, limits: limits)
+          throw(0)
+        end
+      else
+        if !apply_rule(:evaluate_rule_f_any_kwrest, answer.thunks, answer.values, 0, offset, offset_loc)
+          throw(0)
+        end
+      end
+      if limits && @position_offset == offset && !limits[:evaluate_rule_opt_f_block_arg]
+        if !apply_rule(:evaluate_rule_opt_f_block_arg, answer.thunks, nil, 0, offset, offset_loc, limits: limits)
+          throw(0)
+        end
+      else
+        if !apply_rule(:evaluate_rule_opt_f_block_arg, answer.thunks, nil, 0, offset, offset_loc)
+          throw(0)
+        end
+      end
+      answer.thunks.push(
+        ThunkLeaf.new(
+          :action_args_tail_0,
+          Capture.new(
+            answer.pos, @position_offset,
+            answer.pos_loc, @position_offset_loc,
+          ),
+          answer.values.slice(0),
+          {},
+        )
+      )
+      @level -= 1
+      debug { warn "#{ "  " * @level}MATCH   args_tail #{answer.pos} #{@buffer[answer.pos...@position_offset].inspect}" }
+      return answer
+    end
+    @level -= 1
+    debug { warn "#{ "  " * @level}NOMATCH args_tail #{answer.pos} #{@buffer[answer.pos...@position_offset].inspect}" }
+    return nil
+  end
+
+  def evaluate_rule_f_any_kwrest(offset, offset_loc, limits: nil)
+    answer = ThunkChunk.new
+    answer.pos = @position_offset
+    answer.pos_loc = @position_offset_loc
+    debug { warn "#{ "  " * @level}EVAL    f_any_kwrest #{answer.pos} #{@buffer[answer.pos..-1].inspect}" }
+    @level += 1
+    answer.resize_captures(0)
+    answer.values = {}
+    catch(0) do
+      catch(1) do
+        pos2 = @position_offset
+        p_loc2 = @position_offset_loc
+        n2 = answer.thunks.length
+        catch(2) do
+          if limits && @position_offset == offset && !limits[:evaluate_rule_f_kwrest]
+            if !apply_rule(:evaluate_rule_f_kwrest, answer.thunks, answer.values, 0, offset, offset_loc, limits: limits)
+              throw(2)
+            end
+          else
+            if !apply_rule(:evaluate_rule_f_kwrest, answer.thunks, answer.values, 0, offset, offset_loc)
+              throw(2)
+            end
+          end
+          answer.thunks.push(
+            ThunkLeaf.new(
+              :action_f_any_kwrest_0,
+              Capture.new(
+                answer.pos, @position_offset,
+                answer.pos_loc, @position_offset_loc,
+              ),
+              answer.values.slice(0),
+              {},
+            )
+          )
+          throw(1)
+        end
+        @position_offset = pos2
+        @position_offset_loc = p_loc2
+        answer.thunks[n2..-1] = []
+        catch(3) do
+          if (
+            refill_buffer(2) < 2 ||
+            @buffer[@position_offset, 2] != "**"
+          )
+            throw(3)
+          end
+          @position_offset_loc = @position_offset_loc.forward(@buffer, @position_offset, 2)
+          @position_offset += 2
+          pos4 = @position_offset
+          p_loc4 = @position_offset_loc
+          n4 = answer.thunks.length
+          catch(5) do
+            catch(4) do
+              if limits && @position_offset == offset && !limits[:evaluate_rule_spaces]
+                if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc, limits: limits)
+                  throw(4)
+                end
+              else
+                if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc)
+                  throw(4)
+                end
+              end
+              throw(5)
+            end
+            @position_offset_loc = p_loc4
+            @position_offset = pos4
+            answer.thunks[n4..-1] = []
+          end
+          if (
+            refill_buffer(3) < 3 ||
+            @buffer[@position_offset, 3] != "nil"
+          )
+            throw(3)
+          end
+          @position_offset_loc = @position_offset_loc.forward(@buffer, @position_offset, 3)
+          @position_offset += 3
+          answer.thunks.push(
+            ThunkLeaf.new(
+              :action_f_any_kwrest_1,
+              Capture.new(
+                answer.pos, @position_offset,
+                answer.pos_loc, @position_offset_loc,
+              ),
+              {},
+              {},
+            )
+          )
+          throw(1)
+        end
+        @position_offset = pos2
+        @position_offset_loc = p_loc2
+        answer.thunks[n2..-1] = []
+        throw(0)
+      end
+      @level -= 1
+      debug { warn "#{ "  " * @level}MATCH   f_any_kwrest #{answer.pos} #{@buffer[answer.pos...@position_offset].inspect}" }
+      return answer
+    end
+    @level -= 1
+    debug { warn "#{ "  " * @level}NOMATCH f_any_kwrest #{answer.pos} #{@buffer[answer.pos...@position_offset].inspect}" }
+    return nil
+  end
+
+  def evaluate_rule_f_kwrest(offset, offset_loc, limits: nil)
+    answer = ThunkChunk.new
+    answer.pos = @position_offset
+    answer.pos_loc = @position_offset_loc
+    debug { warn "#{ "  " * @level}EVAL    f_kwrest #{answer.pos} #{@buffer[answer.pos..-1].inspect}" }
+    @level += 1
+    answer.resize_captures(0)
+    answer.values = {}
+    catch(0) do
+      catch(1) do
+        pos2 = @position_offset
+        p_loc2 = @position_offset_loc
+        n2 = answer.thunks.length
+        catch(2) do
+          if (
+            refill_buffer(2) < 2 ||
+            @buffer[@position_offset, 2] != "**"
+          )
+            throw(2)
+          end
+          @position_offset_loc = @position_offset_loc.forward(@buffer, @position_offset, 2)
+          @position_offset += 2
+          pos4 = @position_offset
+          p_loc4 = @position_offset_loc
+          n4 = answer.thunks.length
+          catch(4) do
+            catch(3) do
+              if limits && @position_offset == offset && !limits[:evaluate_rule_spaces]
+                if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc, limits: limits)
+                  throw(3)
+                end
+              else
+                if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc)
+                  throw(3)
+                end
+              end
+              throw(4)
+            end
+            @position_offset_loc = p_loc4
+            @position_offset = pos4
+            answer.thunks[n4..-1] = []
+          end
+          if limits && @position_offset == offset && !limits[:evaluate_rule_tIDENTIFIER]
+            if !apply_rule(:evaluate_rule_tIDENTIFIER, answer.thunks, answer.values, 0, offset, offset_loc, limits: limits)
+              throw(2)
+            end
+          else
+            if !apply_rule(:evaluate_rule_tIDENTIFIER, answer.thunks, answer.values, 0, offset, offset_loc)
+              throw(2)
+            end
+          end
+          answer.thunks.push(
+            ThunkLeaf.new(
+              :action_f_kwrest_0,
+              Capture.new(
+                answer.pos, @position_offset,
+                answer.pos_loc, @position_offset_loc,
+              ),
+              answer.values.slice(0),
+              {},
+            )
+          )
+          throw(1)
+        end
+        @position_offset = pos2
+        @position_offset_loc = p_loc2
+        answer.thunks[n2..-1] = []
+        catch(5) do
+          if (
+            refill_buffer(2) < 2 ||
+            @buffer[@position_offset, 2] != "**"
+          )
+            throw(5)
+          end
+          @position_offset_loc = @position_offset_loc.forward(@buffer, @position_offset, 2)
+          @position_offset += 2
+          answer.thunks.push(
+            ThunkLeaf.new(
+              :action_f_kwrest_1,
+              Capture.new(
+                answer.pos, @position_offset,
+                answer.pos_loc, @position_offset_loc,
+              ),
+              {},
+              {},
+            )
+          )
+          throw(1)
+        end
+        @position_offset = pos2
+        @position_offset_loc = p_loc2
+        answer.thunks[n2..-1] = []
+        throw(0)
+      end
+      @level -= 1
+      debug { warn "#{ "  " * @level}MATCH   f_kwrest #{answer.pos} #{@buffer[answer.pos...@position_offset].inspect}" }
+      return answer
+    end
+    @level -= 1
+    debug { warn "#{ "  " * @level}NOMATCH f_kwrest #{answer.pos} #{@buffer[answer.pos...@position_offset].inspect}" }
+    return nil
+  end
+
+  def evaluate_rule_opt_f_block_arg(offset, offset_loc, limits: nil)
+    answer = ThunkChunk.new
+    answer.pos = @position_offset
+    answer.pos_loc = @position_offset_loc
+    debug { warn "#{ "  " * @level}EVAL    opt_f_block_arg #{answer.pos} #{@buffer[answer.pos..-1].inspect}" }
+    @level += 1
+    answer.resize_captures(0)
+    @level -= 1
+    debug { warn "#{ "  " * @level}MATCH   opt_f_block_arg #{answer.pos} #{@buffer[answer.pos...@position_offset].inspect}" }
+    return answer
+  end
+
+  def evaluate_rule_f_rest_arg(offset, offset_loc, limits: nil)
+    answer = ThunkChunk.new
+    answer.pos = @position_offset
+    answer.pos_loc = @position_offset_loc
+    debug { warn "#{ "  " * @level}EVAL    f_rest_arg #{answer.pos} #{@buffer[answer.pos..-1].inspect}" }
+    @level += 1
+    answer.resize_captures(0)
+    answer.values = {}
+    catch(0) do
+      catch(1) do
+        pos2 = @position_offset
+        p_loc2 = @position_offset_loc
+        n2 = answer.thunks.length
+        catch(2) do
+          if (
+            refill_buffer(1) < 1 ||
+            @buffer[@position_offset] != "*"
+          )
+            throw(2)
+          end
+          @position_offset_loc = @position_offset_loc.forward(@buffer, @position_offset, 1)
+          @position_offset += 1
+          pos4 = @position_offset
+          p_loc4 = @position_offset_loc
+          n4 = answer.thunks.length
+          catch(4) do
+            catch(3) do
+              if limits && @position_offset == offset && !limits[:evaluate_rule_spaces]
+                if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc, limits: limits)
+                  throw(3)
+                end
+              else
+                if !apply_rule(:evaluate_rule_spaces, answer.thunks, nil, 0, offset, offset_loc)
+                  throw(3)
+                end
+              end
+              throw(4)
+            end
+            @position_offset_loc = p_loc4
+            @position_offset = pos4
+            answer.thunks[n4..-1] = []
+          end
+          if limits && @position_offset == offset && !limits[:evaluate_rule_tIDENTIFIER]
+            if !apply_rule(:evaluate_rule_tIDENTIFIER, answer.thunks, answer.values, 0, offset, offset_loc, limits: limits)
+              throw(2)
+            end
+          else
+            if !apply_rule(:evaluate_rule_tIDENTIFIER, answer.thunks, answer.values, 0, offset, offset_loc)
+              throw(2)
+            end
+          end
+          answer.thunks.push(
+            ThunkLeaf.new(
+              :action_f_rest_arg_0,
+              Capture.new(
+                answer.pos, @position_offset,
+                answer.pos_loc, @position_offset_loc,
+              ),
+              answer.values.slice(0),
+              {},
+            )
+          )
+          throw(1)
+        end
+        @position_offset = pos2
+        @position_offset_loc = p_loc2
+        answer.thunks[n2..-1] = []
+        catch(5) do
+          if (
+            refill_buffer(1) < 1 ||
+            @buffer[@position_offset] != "*"
+          )
+            throw(5)
+          end
+          @position_offset_loc = @position_offset_loc.forward(@buffer, @position_offset, 1)
+          @position_offset += 1
+          answer.thunks.push(
+            ThunkLeaf.new(
+              :action_f_rest_arg_1,
+              Capture.new(
+                answer.pos, @position_offset,
+                answer.pos_loc, @position_offset_loc,
+              ),
+              {},
+              {},
+            )
+          )
+          throw(1)
+        end
+        @position_offset = pos2
+        @position_offset_loc = p_loc2
+        answer.thunks[n2..-1] = []
+        throw(0)
+      end
+      @level -= 1
+      debug { warn "#{ "  " * @level}MATCH   f_rest_arg #{answer.pos} #{@buffer[answer.pos...@position_offset].inspect}" }
+      return answer
+    end
+    @level -= 1
+    debug { warn "#{ "  " * @level}NOMATCH f_rest_arg #{answer.pos} #{@buffer[answer.pos...@position_offset].inspect}" }
+    return nil
   end
 
   def evaluate_rule_f_arg(offset, offset_loc, limits: nil)

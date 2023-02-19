@@ -37,14 +37,11 @@ enum node_type {
     NODE_ARGS_AUX,
     NODE_ARGS,
     NODE_LASGN,
+    NODE_DVAR,
     NODE_BEGIN,
     NODE_CLASS,
     NODE_COLON2,
     NODE_LAST
-};
-
-struct tiny_ruby_parser_args_info {
-    int pre_args_num;
 };
 
 typedef struct RNode {
@@ -68,6 +65,13 @@ typedef struct RNode {
     int newline;
     VALUE var_table;
 } NODE;
+
+struct tiny_ruby_parser_args_info {
+    int pre_args_num;
+    ID rest_arg;
+    NODE *kw_rest_arg;
+    unsigned int no_kwarg: 1;
+};
 
 typedef union {
     VALUE value;

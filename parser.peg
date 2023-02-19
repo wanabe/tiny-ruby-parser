@@ -331,13 +331,15 @@ def_name            <-  fname:fname
 f_arglist           <-  spaces? f_paren_args:f_paren_args <spaces?> <term?> (spaces* term)*
                           c  -> {
                             $$ = f_paren_args;
-                            if($2[0] != '\0') {
+                            /* for compatiblility */
+                            if($2[0] != '\0' && !$$.node->nd_ainfo->rest_arg) {
                               $$.node->nd_head = NEW_NODE(NODE_BEGIN, 0, 0, 0, $1sl, $1sl);
                             }
                           }
                           rb -> {
                             $$ = f_paren_args
-                            if $2 != ""
+                            # for compatiblility
+                            if $2 != "" && !$$.nd_ainfo.rest_arg
                               $$.nd_head = BeginNode.new(nil, nil, nil, $1sl, $1sl)
                             end
                           }
@@ -355,20 +357,82 @@ f_arglist           <-  spaces? f_paren_args:f_paren_args <spaces?> <term?> (spa
                             end
                           }
 f_paren_args        <-  '(' spaces? $$:f_args spaces? ')'
-f_args              <-  f_arg:f_arg
+f_args              <-  $$:args_tail
+                      / f_rest_arg:f_rest_arg
+                        opt_args_tail:opt_args_tail
+                          c  -> {
+                            $$ = opt_args_tail;
+                            $$.node->nd_loc.beg_pos = $0c.range.start_loc;
+                            $$.node->nd_loc.end_pos = $0c.range.end_loc;
+                            $$.node->nd_ainfo->rest_arg = SYM2ID(f_rest_arg.value);
+                            tiny_ruby_parser_var_table_unshift($$.node, f_rest_arg.value);
+                          }
+                          rb -> {
+                            $$ = opt_args_tail
+                            $$.nd_loc.beg_pos = $0c.start_loc
+                            $$.nd_loc.end_pos = $0c.end_loc
+                            $$.nd_ainfo.rest_arg = f_rest_arg
+                            $$.var_table_unshift(f_rest_arg)
+                          }
+                      / f_arg:f_arg spaces?
+                        ',' spaces?
+                        args_tail:args_tail
+                          c  -> {
+                            $$ = args_tail;
+                            $$.node->nd_loc.beg_pos = $0c.range.start_loc;
+                            $$.node->nd_loc.end_pos = $0c.range.end_loc;
+                            $$.node->nd_ainfo->pre_args_num = RARRAY_LEN(f_arg.node->var_table);
+                            tiny_ruby_parser_var_table_pass(f_arg.node, $$.node);
+                            tiny_ruby_parser_var_table_pass($$.node, f_arg.node);
+                          }
+                          rb -> {
+                            $$ = args_tail
+                            $$.nd_loc.beg_pos = $0c.start_loc
+                            $$.nd_loc.end_pos = $0c.end_loc
+                            $$.nd_ainfo.pre_args_num = f_arg.var_table.size
+                            f_arg.var_table_pass($$)
+                            $$.var_table_pass(f_arg)
+                          }
+                      / f_arg:f_arg spaces?
+                        ',' spaces?
+                        f_rest_arg:f_rest_arg
+                        opt_args_tail:opt_args_tail
+                          c  -> {
+                            $$ = opt_args_tail;
+                            $$.node->nd_loc.beg_pos = $0c.range.start_loc;
+                            $$.node->nd_loc.end_pos = $0c.range.end_loc;
+                            $$.node->nd_ainfo->pre_args_num = RARRAY_LEN(f_arg.node->var_table);
+                            $$.node->nd_ainfo->rest_arg = SYM2ID(f_rest_arg.value);
+                            tiny_ruby_parser_var_table_pass($$.node, f_arg.node);
+                            tiny_ruby_parser_var_table_add($$.node, f_rest_arg.value);
+                          }
+                          rb -> {
+                            $$ = opt_args_tail
+                            $$.nd_loc.beg_pos = $0c.start_loc
+                            $$.nd_loc.end_pos = $0c.end_loc
+                            $$.nd_ainfo.pre_args_num = f_arg.var_table.size
+                            $$.nd_ainfo.rest_arg = f_rest_arg
+                            $$.var_table_pass(f_arg)
+                            $$.var_table_add(f_rest_arg)
+                          }
+                      / f_arg:f_arg
                           c  -> {
                             struct tiny_ruby_parser_args_info *args = calloc(1, sizeof(struct tiny_ruby_parser_args_info));
-                            args->pre_args_num = RARRAY_LEN(f_arg.node->var_table);
                             $$.node = NEW_NODE(NODE_ARGS, 0, 0, args, $0sl, $0el);
+                            $$.node->nd_loc.beg_pos = $0c.range.start_loc;
+                            $$.node->nd_loc.end_pos = $0c.range.end_loc;
+                            $$.node->nd_ainfo->pre_args_num = RARRAY_LEN(f_arg.node->var_table);
                             tiny_ruby_parser_var_table_pass($$.node, f_arg.node);
                           }
                           rb -> {
                             args = ArgsInfo.new
-                            args.pre_args_num = f_arg.var_table.size
                             $$ = ArgsNode.new(nil, nil, args, $0sl, $0el)
+                            $$.nd_loc.beg_pos = $0c.start_loc
+                            $$.nd_loc.end_pos = $0c.end_loc
+                            $$.nd_ainfo.pre_args_num = f_arg.var_table.size
                             $$.var_table_pass(f_arg)
                           }
-                      / # none
+                      / ''
                           c  -> {
                             struct tiny_ruby_parser_args_info *args = calloc(1, sizeof(struct tiny_ruby_parser_args_info));
                             $$.node = NEW_NODE(NODE_ARGS, 0, 0, args, $0sl, $0el);
@@ -377,6 +441,67 @@ f_args              <-  f_arg:f_arg
                             args = ArgsInfo.new
                             $$ = ArgsNode.new(nil, nil, args, $0sl, $0el)
                           }
+
+opt_args_tail       <-  spaces? ',' spaces? $$:args_tail
+                      / ''
+                          c  -> {
+                            struct tiny_ruby_parser_args_info *args = calloc(1, sizeof(struct tiny_ruby_parser_args_info));
+                            $$.node = NEW_NODE(NODE_ARGS, 0, 0, args, $0sl, $0el);
+                          }
+                          rb -> {
+                            args = ArgsInfo.new
+                            $$ = ArgsNode.new(nil, nil, args, $0sl, $0el)
+                          }
+args_tail           <-  f_any_kwrest:f_any_kwrest opt_f_block_arg
+                          c  -> {
+                            struct tiny_ruby_parser_args_info *args = calloc(1, sizeof(struct tiny_ruby_parser_args_info));
+                            $$.node = NEW_NODE(NODE_ARGS, 0, 0, args, $0sl, $0el);
+                            if (SYM2ID(f_any_kwrest.value) == rb_intern("nil")) {
+                                args->no_kwarg = 1;
+                            } else {
+                                args->kw_rest_arg = NEW_NODE(NODE_DVAR, f_any_kwrest.value, 0, 0, $0sl, $0el);
+                                tiny_ruby_parser_var_table_add($$.node, f_any_kwrest.value);
+                            }
+                          }
+                          rb -> {
+                            args = ArgsInfo.new
+                            $$ = ArgsNode.new(nil, nil, args, $0sl, $0el)
+                            if f_any_kwrest == :nil
+                              args.no_kwarg = true
+                            else
+                              args.kw_rest_arg = DvarNode.new(f_any_kwrest, nil, nil, $0sl, $0el)
+                              $$.var_table_add(f_any_kwrest)
+                            end
+                          }
+f_any_kwrest        <-  $$:f_kwrest
+                      / '**' spaces? 'nil'
+                          c  -> {
+                            $$.value = ID2SYM(rb_intern("nil"));
+                          }
+                          rb -> {
+                            $$ = :nil
+                          }
+
+f_kwrest            <-  '**' spaces? $$:tIDENTIFIER
+                      / '**'
+                          c  -> {
+                            $$.value = ID2SYM(rb_intern("**"));
+                          }
+                          rb -> {
+                            $$ = :"**"
+                          }
+
+opt_f_block_arg     <-  ''
+
+f_rest_arg          <-  '*' spaces? $$:tIDENTIFIER
+                      / '*'
+                          c  -> {
+                            $$.value = ID2SYM(rb_intern("*"));
+                          }
+                          rb -> {
+                            $$ = :"*"
+                          }
+
 f_arg               <-  f_arg:f_arg spaces? ',' spaces? f_arg_item:f_arg_item
                           c  -> {
                             $$.node = f_arg.node;
@@ -679,14 +804,11 @@ spaces              <-  [ \t\v\f\r]+
         NODE_ARGS_AUX,
         NODE_ARGS,
         NODE_LASGN,
+        NODE_DVAR,
         NODE_BEGIN,
         NODE_CLASS,
         NODE_COLON2,
         NODE_LAST
-    };
-
-    struct tiny_ruby_parser_args_info {
-        int pre_args_num;
     };
 
     typedef struct RNode {
@@ -710,6 +832,13 @@ spaces              <-  [ \t\v\f\r]+
         int newline;
         VALUE var_table;
     } NODE;
+
+    struct tiny_ruby_parser_args_info {
+        int pre_args_num;
+        ID rest_arg;
+        NODE *kw_rest_arg;
+        unsigned int no_kwarg: 1;
+    };
 
     typedef union {
         VALUE value;
@@ -833,6 +962,13 @@ spaces              <-  [ \t\v\f\r]+
         rb_ary_push(node->var_table, sym);
     }
 
+    void tiny_ruby_parser_var_table_unshift(NODE *node, VALUE sym) {
+        if (NIL_P(node->var_table)) {
+            node->var_table = rb_ary_new();
+        }
+        rb_ary_unshift(node->var_table, sym);
+    }
+
     void tiny_ruby_parser_var_table_pass(NODE *dst, NODE *src) {
         if (!src) {
             return;
@@ -855,6 +991,7 @@ spaces              <-  [ \t\v\f\r]+
             tbl = rb_ary_new();
         }
         n->nd_defn = NEW_NODE(NODE_SCOPE, tbl, body, args, beg_pos, end_pos);
+        n->nd_defn->nd_loc.lineno = end_pos.lineno;
         args->var_table = Qnil;
         n->nd_loc.beg_pos = beg_pos;
         n->nd_loc.end_pos = end_pos;
@@ -863,6 +1000,14 @@ spaces              <-  [ \t\v\f\r]+
 
     VALUE tiny_ruby_parser_i_inspect(RB_BLOCK_CALL_FUNC_ARGLIST(item, dummy)) {
         return rb_inspect(item);
+    }
+
+    void tiny_ruby_parser_dump_id(ID id) {
+        if (id) {
+            printf(":%s\n", rb_id2name(id));
+        } else {
+            printf("(null)\n");
+        }
     }
 
     void tiny_ruby_parser_dump_node(NODE *node, VALUE indent) {
@@ -889,6 +1034,7 @@ spaces              <-  [ \t\v\f\r]+
           nt(NODE_DEFN);
           nt(NODE_ARGS);
           nt(NODE_LASGN);
+          nt(NODE_DVAR);
           nt(NODE_BEGIN);
           nt(NODE_CLASS);
           nt(NODE_COLON2);
@@ -1005,14 +1151,23 @@ spaces              <-  [ \t\v\f\r]+
             printf("%s+- nd_ainfo->post_init:\n", RSTRING_PTR(indent));
             printf("%s|   (null node)\n", RSTRING_PTR(indent));
             printf("%s+- nd_ainfo->first_post_arg: (null)\n", RSTRING_PTR(indent));
-            printf("%s+- nd_ainfo->rest_arg: (null)\n", RSTRING_PTR(indent));
+            printf("%s+- nd_ainfo->rest_arg: ", RSTRING_PTR(indent));
+            tiny_ruby_parser_dump_id(node->nd_ainfo->rest_arg);
             printf("%s+- nd_ainfo->block_arg: (null)\n", RSTRING_PTR(indent));
             printf("%s+- nd_ainfo->opt_args:\n", RSTRING_PTR(indent));
             printf("%s|   (null node)\n", RSTRING_PTR(indent));
             printf("%s+- nd_ainfo->kw_args:\n", RSTRING_PTR(indent));
             printf("%s|   (null node)\n", RSTRING_PTR(indent));
             printf("%s+- nd_ainfo->kw_rest_arg:\n", RSTRING_PTR(indent));
-            printf("%s    (null node)\n", RSTRING_PTR(indent));
+            rb_str_cat(indent, "    ", 4);
+            tiny_ruby_parser_dump_node(node->nd_ainfo->kw_rest_arg, indent);
+            rb_str_resize(indent, RSTRING_LEN(indent) - 4);
+            break;
+          case NODE_DVAR:
+            printf("%s+- nd_vid: ", RSTRING_PTR(indent));
+            fflush(stdout);
+            rb_p(node->nd_vid);
+            rb_funcall(rb_const_get(rb_mKernel, rb_intern("STDOUT")), rb_intern("flush"), 0);
             break;
           case NODE_LASGN:
             printf("%s+- nd_vid: ", RSTRING_PTR(indent));
@@ -1088,6 +1243,7 @@ spaces              <-  [ \t\v\f\r]+
       def set_defun_body(n, args, body, beg_pos, end_pos)
         args.var_table_pass(body)
         n.nd_defn = ScopeNode.new(args.var_table || [], body, args, beg_pos, end_pos)
+        n.nd_defn.nd_loc.lineno = end_pos.lineno
         args.var_table = nil
         n.nd_loc.beg_pos = beg_pos
         n.nd_loc.end_pos = end_pos
@@ -1145,6 +1301,14 @@ spaces              <-  [ \t\v\f\r]+
         puts "#{indent}@ #{label} (id: #{@node_id}, line: #{@nd_loc.lineno + 1}, location: (#{@nd_loc.beg_pos.lineno + 1},#{@nd_loc.beg_pos.column})-(#{@nd_loc.end_pos.lineno + 1},#{@nd_loc.end_pos.column}))#{newline ? "*" : ""}"
       end
 
+      def dump_id(id)
+        if id
+          id.inspect
+        else
+          "(null)"
+        end
+      end
+
       def to_block
         block_node = BlockNode.new(self, nd_loc.beg_pos, nd_loc.end_pos)
         block_node.var_table = self.var_table
@@ -1168,6 +1332,11 @@ spaces              <-  [ \t\v\f\r]+
       def var_table_add(sym)
         @var_table ||= []
         @var_table << sym
+      end
+
+      def var_table_unshift(sym)
+        @var_table ||= []
+        @var_table.unshift(sym)
       end
 
       def var_table_pass(src)
@@ -1372,7 +1541,7 @@ spaces              <-  [ \t\v\f\r]+
     end
 
     class ArgsInfo
-      attr_accessor :pre_args_num
+      attr_accessor :pre_args_num, :rest_arg, :kw_rest_arg, :no_kwarg
 
       def initialize
         @pre_args_num = 0
@@ -1392,21 +1561,21 @@ spaces              <-  [ \t\v\f\r]+
 
       def debug_dump(indent)
         super
-        puts "#{indent}+- nd_ainfo->pre_args_num: #{@u3.pre_args_num}"
+        puts "#{indent}+- nd_ainfo->pre_args_num: #{nd_ainfo.pre_args_num}"
         puts "#{indent}+- nd_ainfo->pre_init:"
         puts "#{indent}|   (null node)"
         puts "#{indent}+- nd_ainfo->post_args_num: 0"
         puts "#{indent}+- nd_ainfo->post_init:"
         puts "#{indent}|   (null node)"
         puts "#{indent}+- nd_ainfo->first_post_arg: (null)"
-        puts "#{indent}+- nd_ainfo->rest_arg: (null)"
+        puts "#{indent}+- nd_ainfo->rest_arg: #{dump_id(nd_ainfo.rest_arg)}"
         puts "#{indent}+- nd_ainfo->block_arg: (null)"
         puts "#{indent}+- nd_ainfo->opt_args:"
         puts "#{indent}|   (null node)"
         puts "#{indent}+- nd_ainfo->kw_args:"
         puts "#{indent}|   (null node)"
         puts "#{indent}+- nd_ainfo->kw_rest_arg:"
-        puts "#{indent}    (null node)"
+        Node.debug_dump(nd_ainfo.kw_rest_arg, indent + "    ")
       end
     end
 
@@ -1424,6 +1593,17 @@ spaces              <-  [ \t\v\f\r]+
         puts "#{indent}+- nd_vid: #{nd_vid.inspect}"
         puts "#{indent}+- nd_value:"
         Node.debug_dump(nd_value, indent + "    ")
+      end
+    end
+
+    class DvarNode < Node
+      def label
+        "NODE_DVAR"
+      end
+
+      def debug_dump(indent)
+        super
+        puts "#{indent}+- nd_vid: #{nd_vid.inspect}"
       end
     end
 
